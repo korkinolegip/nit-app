@@ -16,8 +16,9 @@ class Settings(BaseSettings):
     # Redis
     REDIS_URL: str = "redis://localhost:6379/0"
 
-    # OpenAI
+    # OpenAI / Groq (set GROQ_API_KEY to switch to Groq)
     OPENAI_API_KEY: str = ""
+    GROQ_API_KEY: str = ""
     OPENAI_CHAT_MODEL: str = "gpt-4o-mini"
     OPENAI_EMBEDDING_MODEL: str = "text-embedding-3-small"
     OPENAI_WHISPER_MODEL: str = "whisper-1"
