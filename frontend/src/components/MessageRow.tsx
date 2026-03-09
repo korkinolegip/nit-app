@@ -6,9 +6,10 @@ interface MessageRowProps {
   message: Message
   onConfirmPortrait?: () => void
   onEditPortrait?: () => void
+  onUploadPhoto?: () => void
 }
 
-export default function MessageRow({ message, onConfirmPortrait, onEditPortrait }: MessageRowProps) {
+export default function MessageRow({ message, onConfirmPortrait, onEditPortrait, onUploadPhoto }: MessageRowProps) {
   const isAI = message.sender === 'ai'
 
   return (
@@ -58,6 +59,44 @@ export default function MessageRow({ message, onConfirmPortrait, onEditPortrait 
               onConfirm={onConfirmPortrait}
               onEdit={onEditPortrait}
             />
+          </div>
+        ) : message.type === 'photo_prompt' ? (
+          <div>
+            <div style={{
+              fontSize: '15px',
+              lineHeight: 1.65,
+              fontWeight: 300,
+              color: 'var(--d1)',
+              padding: '12px 16px',
+              borderRadius: '16px',
+              background: 'var(--bg3)',
+              border: '1px solid var(--l)',
+              borderBottomLeftRadius: '4px',
+              marginBottom: '10px',
+            }}>
+              {message.text}
+            </div>
+            <button
+              onClick={onUploadPhoto}
+              style={{
+                width: '100%',
+                padding: '12px',
+                background: 'var(--w)',
+                color: 'var(--bg)',
+                border: 'none',
+                borderRadius: '12px',
+                fontFamily: 'Inter',
+                fontSize: '14px',
+                fontWeight: 600,
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: '8px',
+              }}
+            >
+              <span>📷</span> Добавить фото
+            </button>
           </div>
         ) : (
           <div style={{

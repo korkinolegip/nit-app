@@ -1,19 +1,46 @@
-import { useEffect } from 'react'
+import { useEffect, useRef, useCallback } from 'react'
 import { useChat } from '../hooks/useChat'
 import MessageRow from '../components/MessageRow'
 import QuickReplies from '../components/QuickReplies'
 import InputBar from '../components/InputBar'
 import { transcribeVoice } from '../api/chat'
+import { uploadPhoto } from '../api/profile'
 
 interface ChatProps {
   onOpenMatch: (matchId: number) => void
+  isReturning?: boolean
+  sessionComplete?: boolean
 }
 
-export default function Chat({ onOpenMatch }: ChatProps) {
+export default function Chat({ onOpenMatch, isReturning = false, sessionComplete = false }: ChatProps) {
   const { messages, isTyping, quickReplies, send, addMessage, scrollRef, setQuickReplies } = useChat()
+  const fileInputRef = useRef<HTMLInputElement>(null)
 
-  // Initial greeting
+  // Initial greeting — only for new users
   useEffect(() => {
+    if (isReturning) {
+      if (sessionComplete) {
+        const t = setTimeout(() => {
+          addMessage({
+            sender: 'ai',
+            text: 'С возвращением! Твой профиль готов. Можешь добавить фото или задать вопрос.',
+            type: 'text',
+          })
+        }, 300)
+        return () => clearTimeout(t)
+      } else {
+        const t = setTimeout(() => {
+          addMessage({
+            sender: 'ai',
+            text: 'Продолжим? Расскажи о себе — что ещё хочешь добавить.',
+            type: 'text',
+          })
+        }, 300)
+        return () => clearTimeout(t)
+      }
+    }
+
+    // New user greeting
     const t1 = setTimeout(() => {
       addMessage({
         sender: 'ai',
@@ -34,16 +61,27 @@ export default function Chat({ onOpenMatch }: ChatProps) {
       clearTimeout(t1)
       clearTimeout(t2)
     }
-  }, [addMessage])
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Scroll to bottom when keyboard opens (mobile)
+  useEffect(() => {
+    const vv = window.visualViewport
+    if (!vv) return
+    const handler = () => {
+      setTimeout(() => {
+        scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' })
+      }, 50)
+    }
+    vv.addEventListener('resize', handler)
+    return () => vv.removeEventListener('resize', handler)
+  }, [scrollRef])
 
   const handleSendVoice = async (blob: Blob) => {
-    // Show voice message bubble
     const duration = '0:00'
     addMessage({ sender: 'me', text: '', type: 'voice', voiceDuration: duration })
 
     try {
       const result = await transcribeVoice(blob)
-      // Send transcribed text as regular message
       await send(result.text)
     } catch {
       addMessage({
@@ -53,6 +91,29 @@ export default function Chat({ onOpenMatch }: ChatProps) {
       })
     }
   }
+
+  const handlePhotoUpload = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    e.target.value = ''
+
+    addMessage({ sender: 'me', text: `📷 ${file.name}`, type: 'text' })
+
+    try {
+      await uploadPhoto(file)
+      addMessage({
+        sender: 'ai',
+        text: 'Фото добавлено! Можешь загрузить ещё или продолжить.',
+        type: 'text',
+      })
+    } catch {
+      addMessage({
+        sender: 'ai',
+        text: 'Не удалось загрузить фото. Попробуй ещё раз.',
+        type: 'text',
+      })
+    }
+  }, [addMessage])
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100dvh', position: 'relative' }}>
@@ -104,6 +165,7 @@ export default function Chat({ onOpenMatch }: ChatProps) {
               send('Хочу дополнить')
               setQuickReplies([])
             }}
+            onUploadPhoto={() => fileInputRef.current?.click()}
           />
         ))}
 
@@ -137,6 +199,15 @@ export default function Chat({ onOpenMatch }: ChatProps) {
 
       {/* Quick replies */}
       <QuickReplies replies={quickReplies} onSelect={(text) => send(text)} />
+
+      {/* Hidden file input for photo upload */}
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="image/*"
+        style={{ display: 'none' }}
+        onChange={handlePhotoUpload}
+      />
 
       {/* Input */}
       <InputBar onSendText={send} onSendVoice={handleSendVoice} />

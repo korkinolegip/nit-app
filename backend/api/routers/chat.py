@@ -1,4 +1,3 @@
-import json
 import logging
 
 from fastapi import APIRouter, Depends
@@ -7,20 +6,19 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.middleware.auth import get_current_user
 from api.middleware.input_sanitizer import sanitize_user_message
-from core.config import settings
-from core.redis import get_redis
 from db.connection import get_db
-from modules.ai.interviewer import process_interview_turn
+from modules.ai.interviewer import process_interview_turn, process_post_onboarding_turn
 from modules.ai.safety import check_message_safety
-from modules.users.models import Answer, InterviewSession, User
+from modules.users.models import Answer, User
 from modules.users.repository import (
     create_interview_session,
     get_interview_session,
-    save_interview_session,
 )
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/chat", tags=["chat"])
+
+_CONFIRM_PHRASES = {"всё верно", "все верно", "всё верно ✓"}
 
 
 class ChatMessageRequest(BaseModel):
@@ -38,6 +36,25 @@ class ChatMessageResponse(BaseModel):
     collected_data: dict | None = None
     quick_replies: list[str] | None = None
     card_data: dict | None = None
+
+
+class ChatStatusResponse(BaseModel):
+    has_session: bool
+    is_complete: bool
+    onboarding_step: str
+
+
+@router.get("/status", response_model=ChatStatusResponse)
+async def get_chat_status(
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    session = await get_interview_session(db, user.id)
+    return ChatStatusResponse(
+        has_session=session is not None,
+        is_complete=session.is_complete if session else False,
+        onboarding_step=user.onboarding_step or "start",
+    )
 
 
 @router.post("/message", response_model=ChatMessageResponse)
@@ -62,18 +79,28 @@ async def send_message(
         )
         db.add(answer)
         await db.commit()
-
-        return ChatMessageResponse(
-            reply="Записала. Продолжаем.",
-            reply_type="text",
-        )
+        return ChatMessageResponse(reply="Записала. Продолжаем.", reply_type="text")
 
     # Get or create interview session
     session = await get_interview_session(db, user.id)
     if session is None:
         session = await create_interview_session(db, user.id)
 
-    # Process through AI interviewer
+    # If interview already complete — post-onboarding mode
+    if session.is_complete:
+        if text.lower().strip() in _CONFIRM_PHRASES:
+            user.onboarding_step = "photos"
+            await db.commit()
+            return ChatMessageResponse(
+                reply="Отлично! Теперь добавь фото — профили с фото находят пару в 3 раза быстрее. Можно добавить до 5 фотографий.",
+                reply_type="photo_prompt",
+                questionnaire_complete=True,
+            )
+
+        reply = await process_post_onboarding_turn(text, user)
+        return ChatMessageResponse(reply=reply, reply_type="text")
+
+    # Normal interview flow
     result = await process_interview_turn(text, session, db)
 
     if result is None:
@@ -82,33 +109,29 @@ async def send_message(
             reply_type="text",
         )
 
-    # Update onboarding step if interview complete
+    # Update user fields when interview complete
     if result.get("interview_complete"):
         user.onboarding_step = "questionnaire"
         user.raw_intro_text = text
-        if result.get("collected"):
-            collected = result["collected"]
-            for field in ["name", "age", "city", "gender", "goal"]:
-                if collected.get(field):
-                    setattr(user, field, collected[field])
-            if collected.get("partner_gender"):
-                user.partner_preference = collected["partner_gender"]
+        collected = result.get("collected") or {}
+        for field in ["name", "age", "city", "gender", "goal"]:
+            if collected.get(field):
+                setattr(user, field, collected[field])
+        if collected.get("partner_gender"):
+            user.partner_preference = collected["partner_gender"]
         await db.commit()
 
     reply_type = "text"
     card_data = None
-    quick_replies = None
 
     if result.get("interview_complete"):
         reply_type = "portrait_card"
         card_data = result.get("collected", {})
-        quick_replies = ["Всё верно", "Хочу дополнить"]
 
     return ChatMessageResponse(
         reply=result.get("message", ""),
         reply_type=reply_type,
         interview_complete=result.get("interview_complete", False),
         collected_data=result.get("collected"),
-        quick_replies=quick_replies,
         card_data=card_data,
     )

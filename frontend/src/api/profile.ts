@@ -14,12 +14,9 @@ export async function updateProfile(data: { name?: string; city?: string; goal?:
 export async function uploadPhoto(file: File) {
   const formData = new FormData()
   formData.append('file', file)
-
-  const BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000'
-  const res = await fetch(`${BASE_URL}/api/profile/photos`, {
+  return apiRequest('/api/profile/photos', {
     method: 'POST',
     body: formData,
+    headers: {},
   })
-  if (!res.ok) throw new Error('Upload failed')
-  return res.json()
 }

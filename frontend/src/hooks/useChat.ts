@@ -5,7 +5,7 @@ export interface Message {
   id: number
   sender: 'ai' | 'me'
   text: string
-  type: 'text' | 'voice' | 'portrait_card' | 'match_card' | 'quick_replies'
+  type: 'text' | 'voice' | 'portrait_card' | 'match_card' | 'photo_prompt'
   cardData?: Record<string, any>
   voiceDuration?: string
 }
@@ -20,7 +20,7 @@ export function useChat() {
   const scrollToBottom = useCallback(() => {
     setTimeout(() => {
       scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' })
-    }, 50)
+    }, 100)
   }, [])
 
   const addMessage = useCallback((msg: Omit<Message, 'id'>) => {
@@ -47,12 +47,14 @@ export function useChat() {
           type: 'portrait_card',
           cardData: res.card_data,
         })
+        // No quickReplies — PortraitCard has its own confirm/edit buttons
+      } else if (res.reply_type === 'photo_prompt') {
+        addMessage({ sender: 'ai', text: res.reply, type: 'photo_prompt' })
       } else {
         addMessage({ sender: 'ai', text: res.reply, type: 'text' })
-      }
-
-      if (res.quick_replies) {
-        setQuickReplies(res.quick_replies)
+        if (res.quick_replies && res.quick_replies.length > 0) {
+          setQuickReplies(res.quick_replies)
+        }
       }
     } catch {
       setIsTyping(false)

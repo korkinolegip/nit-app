@@ -8,17 +8,31 @@ interface VoiceRecordResult {
   cancel: () => void
 }
 
+function getSupportedMimeType(): string {
+  const types = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4', 'audio/ogg']
+  for (const type of types) {
+    if (MediaRecorder.isTypeSupported(type)) return type
+  }
+  return ''
+}
+
 export function useVoiceRecord(): VoiceRecordResult {
   const [isRecording, setIsRecording] = useState(false)
   const [seconds, setSeconds] = useState(0)
   const mediaRecorderRef = useRef<MediaRecorder | null>(null)
   const chunksRef = useRef<Blob[]>([])
   const timerRef = useRef<number | null>(null)
+  const mimeTypeRef = useRef<string>('')
 
   const start = useCallback(async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
-      const recorder = new MediaRecorder(stream, { mimeType: 'audio/webm' })
+      const mimeType = getSupportedMimeType()
+      mimeTypeRef.current = mimeType
+
+      const recorder = mimeType
+        ? new MediaRecorder(stream, { mimeType })
+        : new MediaRecorder(stream)
       chunksRef.current = []
 
       recorder.ondataavailable = (e) => {
@@ -33,8 +47,8 @@ export function useVoiceRecord(): VoiceRecordResult {
       timerRef.current = window.setInterval(() => {
         setSeconds(s => s + 1)
       }, 1000)
-    } catch {
-      console.error('Microphone access denied')
+    } catch (err) {
+      console.error('Failed to start recording:', err)
     }
   }, [])
 
@@ -47,7 +61,8 @@ export function useVoiceRecord(): VoiceRecordResult {
       }
 
       recorder.onstop = () => {
-        const blob = new Blob(chunksRef.current, { type: 'audio/webm' })
+        const mimeType = mimeTypeRef.current || recorder.mimeType || 'audio/webm'
+        const blob = new Blob(chunksRef.current, { type: mimeType })
         recorder.stream.getTracks().forEach(t => t.stop())
         resolve(blob)
       }
