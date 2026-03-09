@@ -1,0 +1,184 @@
+from datetime import datetime, timezone
+
+from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from api.middleware.auth import get_current_user
+from core.storage import get_photo_signed_url
+from db.connection import get_db
+from modules.users.models import ContactExchange, Match, MatchMessage, Photo, User
+from modules.users.repository import get_user
+
+router = APIRouter(prefix="/api/match-chat", tags=["match-chat"])
+
+
+class SendMessageRequest(BaseModel):
+    text: str
+
+
+class ConsentExchangeRequest(BaseModel):
+    consent: bool
+
+
+@router.get("/{match_id}/messages")
+async def get_messages(
+    match_id: int,
+    before_id: int | None = None,
+    limit: int = 50,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    match = await db.get(Match, match_id)
+    if not match:
+        raise HTTPException(404, "Match not found")
+    if user.id not in (match.user1_id, match.user2_id):
+        raise HTTPException(403, "Not your match")
+
+    query = select(MatchMessage).where(MatchMessage.match_id == match_id)
+    if before_id:
+        query = query.where(MatchMessage.id < before_id)
+    query = query.order_by(MatchMessage.created_at.desc()).limit(limit)
+
+    result = await db.execute(query)
+    messages = list(result.scalars().all())
+
+    partner_id = match.user2_id if match.user1_id == user.id else match.user1_id
+    partner = await get_user(db, partner_id)
+
+    # Partner photos
+    photos_result = await db.execute(
+        select(Photo)
+        .where(Photo.user_id == partner_id, Photo.moderation_status == "approved")
+        .order_by(Photo.sort_order)
+    )
+    photos = list(photos_result.scalars().all())
+    partner_photos = []
+    for p in photos:
+        url = await get_photo_signed_url(p.storage_key)
+        partner_photos.append({"url": url, "is_primary": p.is_primary})
+
+    return {
+        "messages": [
+            {
+                "id": m.id,
+                "sender_id": m.sender_id,
+                "content_type": m.content_type,
+                "text": m.text if m.is_delivered else None,
+                "audio_url": None,
+                "transcript": m.transcript,
+                "is_filtered": m.is_filtered,
+                "filter_level": m.filter_level,
+                "created_at": m.created_at.isoformat(),
+            }
+            for m in reversed(messages)
+        ],
+        "chat_status": match.chat_status,
+        "deadline": match.chat_deadline.isoformat() if match.chat_deadline else None,
+        "partner": {
+            "name": partner.name if partner else "",
+            "photos": partner_photos,
+        },
+    }
+
+
+@router.post("/{match_id}/send")
+async def send_message(
+    match_id: int,
+    body: SendMessageRequest,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    match = await db.get(Match, match_id)
+    if not match:
+        raise HTTPException(404, "Match not found")
+    if user.id not in (match.user1_id, match.user2_id):
+        raise HTTPException(403, "Not your match")
+    if match.chat_status not in ("open",):
+        raise HTTPException(403, "Chat is not open")
+
+    msg = MatchMessage(
+        match_id=match_id,
+        sender_id=user.id,
+        content_type="text",
+        text=body.text,
+    )
+    db.add(msg)
+    await db.commit()
+    await db.refresh(msg)
+
+    # TODO: enqueue ARQ filter_message task
+
+    return {
+        "message_id": msg.id,
+        "is_filtered": False,
+        "filter_level": None,
+        "warning": None,
+    }
+
+
+@router.post("/{match_id}/consent-exchange")
+async def consent_exchange(
+    match_id: int,
+    body: ConsentExchangeRequest,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    match = await db.get(Match, match_id)
+    if not match:
+        raise HTTPException(404, "Match not found")
+    if user.id not in (match.user1_id, match.user2_id):
+        raise HTTPException(403, "Not your match")
+
+    # Upsert consent
+    existing = await db.execute(
+        select(ContactExchange).where(
+            ContactExchange.match_id == match_id,
+            ContactExchange.user_id == user.id,
+        )
+    )
+    consent_row = existing.scalar_one_or_none()
+    if consent_row:
+        consent_row.consented = body.consent
+    else:
+        consent_row = ContactExchange(
+            match_id=match_id,
+            user_id=user.id,
+            consented=body.consent,
+        )
+        db.add(consent_row)
+    await db.commit()
+
+    if not body.consent:
+        return {"declined": True}
+
+    # Check if partner also consented
+    partner_id = match.user2_id if match.user1_id == user.id else match.user1_id
+    partner_consent = await db.execute(
+        select(ContactExchange).where(
+            ContactExchange.match_id == match_id,
+            ContactExchange.user_id == partner_id,
+        )
+    )
+    partner_row = partner_consent.scalar_one_or_none()
+
+    if partner_row and partner_row.consented:
+        partner = await get_user(db, partner_id)
+        match.chat_status = "exchanged"
+        await db.commit()
+        # Return partner's telegram username
+        from modules.users.repository import get_user_by_telegram_id
+        return {"telegram_username": f"@{partner.name}"}
+
+    return {"waiting_for_partner": True}
+
+
+@router.post("/{match_id}/request-analysis")
+async def request_analysis(
+    match_id: int,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    # TODO: enqueue ARQ analyze_match_chat task
+    return {"analysis_text": "Анализ переписки в разработке."}
