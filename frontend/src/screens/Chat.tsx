@@ -1,20 +1,23 @@
-import { useEffect, useRef, useCallback } from 'react'
+import { useEffect, useRef, useCallback, useState } from 'react'
 import { useChat } from '../hooks/useChat'
 import MessageRow from '../components/MessageRow'
 import QuickReplies from '../components/QuickReplies'
 import InputBar from '../components/InputBar'
+import MenuSheet from '../components/MenuSheet'
 import { transcribeVoice } from '../api/chat'
 import { uploadPhoto } from '../api/profile'
 
 interface ChatProps {
   onOpenMatch: (matchId: number) => void
+  onNavigateTo: (screen: 'discovery' | 'matches' | 'profile') => void
   isReturning?: boolean
   sessionComplete?: boolean
 }
 
-export default function Chat({ onOpenMatch, isReturning = false, sessionComplete = false }: ChatProps) {
+export default function Chat({ onOpenMatch, onNavigateTo, isReturning = false, sessionComplete = false }: ChatProps) {
   const { messages, isTyping, quickReplies, send, addMessage, scrollRef, setQuickReplies } = useChat()
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const [isMenuOpen, setIsMenuOpen] = useState(false)
 
   // Initial greeting — only for new users
   useEffect(() => {
@@ -134,17 +137,21 @@ export default function Chat({ onOpenMatch, isReturning = false, sessionComplete
             AI-агент
           </div>
         </div>
-        <div style={{
-          width: '32px', height: '32px', borderRadius: '8px',
-          border: '1px solid var(--l)', display: 'flex',
-          alignItems: 'center', justifyContent: 'center', cursor: 'pointer',
-        }}>
+        <button
+          onClick={() => setIsMenuOpen(true)}
+          style={{
+            width: '32px', height: '32px', borderRadius: '8px',
+            border: '1px solid var(--l)', display: 'flex',
+            alignItems: 'center', justifyContent: 'center', cursor: 'pointer',
+            background: 'none',
+          }}
+        >
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
             <circle cx="12" cy="5" r="1.5" fill="rgba(255,255,255,.4)" />
             <circle cx="12" cy="12" r="1.5" fill="rgba(255,255,255,.4)" />
             <circle cx="12" cy="19" r="1.5" fill="rgba(255,255,255,.4)" />
           </svg>
-        </div>
+        </button>
       </div>
 
       {/* Messages */}
@@ -211,6 +218,14 @@ export default function Chat({ onOpenMatch, isReturning = false, sessionComplete
 
       {/* Input */}
       <InputBar onSendText={send} onSendVoice={handleSendVoice} />
+
+      {/* Menu sheet */}
+      {isMenuOpen && (
+        <MenuSheet
+          onNavigate={onNavigateTo}
+          onClose={() => setIsMenuOpen(false)}
+        />
+      )}
 
       <style>{`
         @keyframes tda {

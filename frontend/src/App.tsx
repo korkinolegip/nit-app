@@ -2,10 +2,12 @@ import { useState, useEffect } from 'react'
 import Welcome from './screens/Welcome'
 import Chat from './screens/Chat'
 import MatchChat from './screens/MatchChat'
+import Discovery from './screens/Discovery'
+import Profile from './screens/Profile'
 import { initAuth } from './api/client'
 import { getChatStatus } from './api/chat'
 
-type Screen = 'welcome' | 'chat' | 'matchChat'
+type Screen = 'welcome' | 'chat' | 'matchChat' | 'discovery' | 'matches' | 'profile'
 
 export default function App() {
   const [screen, setScreen] = useState<Screen | null>(null)
@@ -38,7 +40,6 @@ export default function App() {
   const backToChat = () => setScreen('chat')
 
   if (screen === null) {
-    // Loading state — show minimal spinner or blank
     return (
       <div style={{
         height: '100dvh', display: 'flex', alignItems: 'center', justifyContent: 'center',
@@ -57,5 +58,28 @@ export default function App() {
     return <MatchChat matchId={matchId} onBack={backToChat} />
   }
 
-  return <Chat onOpenMatch={openMatchChat} isReturning={isReturning} sessionComplete={sessionComplete} />
+  if (screen === 'discovery') {
+    return <Discovery onBack={backToChat} />
+  }
+
+  if (screen === 'profile') {
+    return <Profile onBack={backToChat} />
+  }
+
+  if (screen === 'matches') {
+    // TODO: Matches screen — for now go back to chat
+    return <Chat
+      onOpenMatch={openMatchChat}
+      onNavigateTo={setScreen}
+      isReturning={isReturning}
+      sessionComplete={sessionComplete}
+    />
+  }
+
+  return <Chat
+    onOpenMatch={openMatchChat}
+    onNavigateTo={setScreen}
+    isReturning={isReturning}
+    sessionComplete={sessionComplete}
+  />
 }

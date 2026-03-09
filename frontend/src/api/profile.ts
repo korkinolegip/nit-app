@@ -4,7 +4,7 @@ export async function getProfile() {
   return apiRequest('/api/profile')
 }
 
-export async function updateProfile(data: { name?: string; city?: string; goal?: string }) {
+export async function updateProfile(data: { name?: string; age?: number; city?: string; goal?: string; occupation?: string }) {
   return apiRequest('/api/profile', {
     method: 'PATCH',
     body: JSON.stringify(data),
