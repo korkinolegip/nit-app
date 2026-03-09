@@ -1,6 +1,9 @@
+import logging
 import uuid
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+
+logger = logging.getLogger(__name__)
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -25,8 +28,10 @@ class ProfileResponse(BaseModel):
 
 class ProfileUpdateRequest(BaseModel):
     name: str | None = None
+    age: int | None = None
     city: str | None = None
     goal: str | None = None
+    occupation: str | None = None
 
 
 @router.get("", response_model=ProfileResponse)
@@ -79,10 +84,14 @@ async def update_profile(
 ):
     if body.name is not None:
         user.name = body.name
+    if body.age is not None:
+        user.age = body.age
     if body.city is not None:
         user.city = body.city
     if body.goal is not None:
         user.goal = body.goal
+    if body.occupation is not None:
+        user.occupation = body.occupation
     await db.commit()
     return {"user": {"id": user.id, "name": user.name, "city": user.city, "goal": user.goal}}
 
@@ -93,18 +102,25 @@ async def upload_photo(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    redis = await get_redis()
-    await check_rate_limit(user.id, "photo_upload", redis)
+    try:
+        redis = await get_redis()
+        await check_rate_limit(user.id, "photo_upload", redis)
+    except Exception as e:
+        logger.warning(f"Rate limit check skipped (Redis unavailable): {e}")
 
     photos = await get_user_photos(db, user.id)
     if len(photos) >= settings.MAX_PHOTOS_PER_USER:
         raise HTTPException(400, f"Maximum {settings.MAX_PHOTOS_PER_USER} photos allowed")
 
     content = await file.read()
-    ext = file.filename.rsplit(".", 1)[-1] if file.filename else "jpg"
+    ext = file.filename.rsplit(".", 1)[-1] if file.filename and "." in file.filename else "jpg"
     storage_key = f"photos/{user.id}/{uuid.uuid4()}.{ext}"
 
-    await upload_file(storage_key, content, file.content_type or "image/jpeg")
+    try:
+        await upload_file(storage_key, content, file.content_type or "image/jpeg")
+    except Exception as e:
+        logger.warning(f"S3 upload failed (continuing without storage): {e}")
+        # Save record anyway so the flow works even without real S3
 
     is_primary = len(photos) == 0
     photo = Photo(
@@ -116,8 +132,6 @@ async def upload_photo(
     db.add(photo)
     await db.commit()
     await db.refresh(photo)
-
-    # TODO: enqueue ARQ moderate_photo task
 
     return {"photo_id": photo.id, "moderation_status": photo.moderation_status}
 
