@@ -20,12 +20,9 @@ export async function sendMessage(text: string, type = 'text'): Promise<ChatResp
 export async function transcribeVoice(file: Blob): Promise<{ text: string; duration_seconds: number }> {
   const formData = new FormData()
   formData.append('file', file, 'audio.ogg')
-
-  const BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000'
-  const res = await fetch(`${BASE_URL}/api/voice/transcribe`, {
+  return apiRequest('/api/voice/transcribe', {
     method: 'POST',
     body: formData,
+    headers: {},
   })
-  if (!res.ok) throw new Error('Transcribe failed')
-  return res.json()
 }
