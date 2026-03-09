@@ -36,8 +36,11 @@ async def transcribe_voice(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    redis = await get_redis()
-    await check_rate_limit(user.id, "voice_transcribe", redis)
+    try:
+        redis = await get_redis()
+        await check_rate_limit(user.id, "voice_transcribe", redis)
+    except Exception as redis_err:
+        logger.warning(f"Rate limit check skipped (Redis unavailable): {redis_err}")
 
     if file.size and file.size > 10 * 1024 * 1024:
         raise HTTPException(413, "File too large (max 10MB)")
