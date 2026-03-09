@@ -41,6 +41,7 @@ class ChatMessageResponse(BaseModel):
 class ChatStatusResponse(BaseModel):
     has_session: bool
     is_complete: bool
+    profile_ready: bool  # True only if session complete AND user has real data
     onboarding_step: str
 
 
@@ -50,9 +51,12 @@ async def get_chat_status(
     db: AsyncSession = Depends(get_db),
 ):
     session = await get_interview_session(db, user.id)
+    is_complete = session.is_complete if session else False
+    profile_ready = is_complete and bool(user.name)
     return ChatStatusResponse(
         has_session=session is not None,
-        is_complete=session.is_complete if session else False,
+        is_complete=is_complete,
+        profile_ready=profile_ready,
         onboarding_step=user.onboarding_step or "start",
     )
 
