@@ -4,6 +4,7 @@ import logging
 
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel
+from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.middleware.auth import get_current_user
@@ -11,10 +12,11 @@ from api.middleware.input_sanitizer import sanitize_user_message
 from db.connection import get_db
 from modules.ai.interviewer import process_interview_turn, process_post_onboarding_turn
 from modules.ai.safety import check_message_safety
-from modules.users.models import Answer, User
+from modules.users.models import Answer, Match, Photo, User
 from modules.users.repository import (
     create_interview_session,
     get_interview_session,
+    get_user,
     get_user_photos,
 )
 
@@ -164,8 +166,24 @@ async def send_message(
             if changed:
                 await db.commit()
 
-        reply_type = "photo_prompt" if result.get("wants_photo_upload") else "text"
-        return ChatMessageResponse(reply=result.get("message", ""), reply_type=reply_type)
+        action = result.get("action")
+        reply_type = "text"
+        card_data = None
+
+        if action == "find_people":
+            reply_type, card_data = await _find_people_cards(user, db)
+            if reply_type == "text":
+                result["message"] = "Пока нет подходящих людей — алгоритм ещё подбирает. Загляни в раздел Люди чуть позже, там появятся анкеты."
+        elif action == "go_to_matches":
+            reply_type = "navigate_matches"
+        elif action == "go_to_discovery":
+            reply_type = "navigate_discovery"
+        elif action == "go_to_profile":
+            reply_type = "navigate_profile"
+        elif result.get("wants_photo_upload"):
+            reply_type = "photo_prompt"
+
+        return ChatMessageResponse(reply=result.get("message", ""), reply_type=reply_type, card_data=card_data)
 
     result = await process_interview_turn(text, session, db)
 
@@ -209,6 +227,80 @@ async def send_message(
         collected_data=result.get("collected"),
         card_data=card_data,
     )
+
+
+async def _find_people_cards(user: User, db: AsyncSession) -> tuple[str, dict | None]:
+    """Query real pending matches for user and return as card_data."""
+    from modules.matching.runner import run_matching_for_user
+    from core.storage import get_photo_signed_url
+
+    # Run matching if user has no matches yet
+    existing = await db.execute(
+        select(Match).where(or_(Match.user1_id == user.id, Match.user2_id == user.id)).limit(1)
+    )
+    if not existing.scalar_one_or_none():
+        await run_matching_for_user(user.id, db)
+
+    # Get pending matches (not yet actioned by current user)
+    matches_result = await db.execute(
+        select(Match)
+        .where(or_(Match.user1_id == user.id, Match.user2_id == user.id))
+        .order_by(Match.compatibility_score.desc())
+        .limit(5)
+    )
+    matches = list(matches_result.scalars().all())
+
+    cards = []
+    for m in matches:
+        partner_id = m.user2_id if m.user1_id == user.id else m.user1_id
+        user_action = m.user1_action if m.user1_id == user.id else m.user2_action
+        if user_action is not None:
+            continue  # already actioned
+
+        partner = await get_user(db, partner_id)
+        if not partner:
+            continue
+
+        photo_url = None
+        photo_result = await db.execute(
+            select(Photo)
+            .where(Photo.user_id == partner_id, Photo.moderation_status == "approved", Photo.is_primary == True)
+            .limit(1)
+        )
+        photo = photo_result.scalar_one_or_none()
+        if photo:
+            try:
+                photo_url = await get_photo_signed_url(photo.storage_key)
+            except Exception:
+                pass
+
+        goal_labels = {
+            "romantic": "Романтические отношения", "friendship": "Дружба",
+            "hobby_partner": "Партнёр по интересам", "travel_companion": "Попутчик",
+            "professional": "Деловые связи", "open": "Открыт к общению",
+        }
+
+        if user.goal in ("friendship", "hobby_partner") or partner.goal in ("friendship", "hobby_partner"):
+            compat_label = "схожесть интересов"
+        else:
+            compat_label = "совместимость"
+
+        cards.append({
+            "match_id": m.id,
+            "name": partner.name,
+            "age": partner.age,
+            "city": partner.city,
+            "goal": goal_labels.get(partner.goal or "", partner.goal),
+            "personality_type": partner.personality_type,
+            "profile_text": partner.profile_text,
+            "compatibility_score": m.compatibility_score,
+            "compatibility_label": compat_label,
+            "photo_url": photo_url,
+        })
+
+    if not cards:
+        return "text", None
+    return "user_cards", {"cards": cards}
 
 
 async def _generate_personality_background(user_id: int, collected: dict):

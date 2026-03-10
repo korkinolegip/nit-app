@@ -5,12 +5,12 @@ export interface Message {
   id: number
   sender: 'ai' | 'me'
   text: string
-  type: 'text' | 'voice' | 'portrait_card' | 'match_card' | 'photo_prompt'
+  type: 'text' | 'voice' | 'portrait_card' | 'match_card' | 'photo_prompt' | 'user_cards'
   cardData?: Record<string, any>
   voiceDuration?: string
 }
 
-export function useChat() {
+export function useChat(opts?: { onNavigate?: (screen: 'discovery' | 'matches' | 'profile') => void }) {
   const [messages, setMessages] = useState<Message[]>([])
   const [isTyping, setIsTyping] = useState(false)
   const [quickReplies, setQuickReplies] = useState<string[]>([])
@@ -47,9 +47,19 @@ export function useChat() {
           type: 'portrait_card',
           cardData: res.card_data,
         })
-        // No quickReplies — PortraitCard has its own confirm/edit buttons
       } else if (res.reply_type === 'photo_prompt') {
         addMessage({ sender: 'ai', text: res.reply, type: 'photo_prompt' })
+      } else if (res.reply_type === 'user_cards' && res.card_data) {
+        addMessage({ sender: 'ai', text: res.reply, type: 'user_cards', cardData: res.card_data })
+      } else if (res.reply_type === 'navigate_matches') {
+        addMessage({ sender: 'ai', text: res.reply, type: 'text' })
+        setTimeout(() => opts?.onNavigate?.('matches'), 700)
+      } else if (res.reply_type === 'navigate_discovery') {
+        addMessage({ sender: 'ai', text: res.reply, type: 'text' })
+        setTimeout(() => opts?.onNavigate?.('discovery'), 700)
+      } else if (res.reply_type === 'navigate_profile') {
+        addMessage({ sender: 'ai', text: res.reply, type: 'text' })
+        setTimeout(() => opts?.onNavigate?.('profile'), 700)
       } else {
         addMessage({ sender: 'ai', text: res.reply, type: 'text' })
         if (res.quick_replies && res.quick_replies.length > 0) {
@@ -64,7 +74,7 @@ export function useChat() {
         type: 'text',
       })
     }
-  }, [addMessage])
+  }, [addMessage, opts])
 
   return {
     messages,

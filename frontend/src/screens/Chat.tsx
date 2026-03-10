@@ -7,6 +7,19 @@ import SettingsSheet from '../components/SettingsSheet'
 import { transcribeVoice, getChatHistory } from '../api/chat'
 import { uploadPhoto } from '../api/profile'
 
+interface CardItem {
+  match_id: number
+  name: string
+  age: number
+  city: string
+  goal: string | null
+  personality_type: string | null
+  profile_text: string | null
+  compatibility_score: number
+  compatibility_label: string
+  photo_url: string | null
+}
+
 interface ChatProps {
   onOpenMatch: (matchId: number) => void
   onNavigateTo: (screen: 'discovery' | 'matches' | 'profile') => void
@@ -16,26 +29,24 @@ interface ChatProps {
 }
 
 export default function Chat({ onOpenMatch, onNavigateTo, isReturning = false, sessionComplete = false, hasPhotos = false }: ChatProps) {
-  const { messages, isTyping, quickReplies, send, addMessage, scrollRef, setQuickReplies } = useChat()
+  const { messages, isTyping, quickReplies, send, addMessage, scrollRef, setQuickReplies } = useChat({ onNavigate: onNavigateTo })
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [isMenuOpen, setIsMenuOpen] = useState(false)
+  const [viewingCard, setViewingCard] = useState<CardItem | null>(null)
 
   // Initial greeting / history restore
   useEffect(() => {
     if (isReturning) {
-      // Load full chat history from server
       getChatHistory()
         .then(({ messages: history }) => {
           if (history.length > 0) {
             history.forEach(msg => addMessage({ sender: msg.sender, text: msg.text, type: 'text' }))
-            // Show context-aware continuation message
             if (!hasPhotos && sessionComplete) {
               setTimeout(() => {
                 addMessage({ sender: 'ai', text: 'Загрузи фото чтобы начать находить людей:', type: 'photo_prompt' })
               }, 300)
             }
           } else {
-            // Fallback greeting if no history
             if (sessionComplete) {
               addMessage({
                 sender: 'ai',
@@ -58,7 +69,6 @@ export default function Chat({ onOpenMatch, onNavigateTo, isReturning = false, s
       return
     }
 
-    // New user greeting
     const t1 = setTimeout(() => {
       addMessage({
         sender: 'ai',
@@ -81,7 +91,6 @@ export default function Chat({ onOpenMatch, onNavigateTo, isReturning = false, s
     }
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Scroll to bottom when keyboard opens (mobile)
   useEffect(() => {
     const vv = window.visualViewport
     if (!vv) return
@@ -94,21 +103,32 @@ export default function Chat({ onOpenMatch, onNavigateTo, isReturning = false, s
     return () => vv.removeEventListener('resize', handler)
   }, [scrollRef])
 
-  const handleSendVoice = async (blob: Blob) => {
-    const duration = '0:00'
+  const handleSendVoice = async (blob: Blob, durationSecs: number) => {
+    const m = Math.floor(durationSecs / 60)
+    const s = durationSecs % 60
+    const duration = `${m}:${String(s).padStart(2, '0')}`
     addMessage({ sender: 'me', text: '', type: 'voice', voiceDuration: duration })
 
-    try {
-      const result = await transcribeVoice(blob)
-      await send(result.text)
-    } catch (err) {
-      const detail = err instanceof Error ? err.message : String(err)
-      addMessage({
-        sender: 'ai',
-        text: `Голос: ${detail}`,
-        type: 'text',
-      })
+    // Retry once on failure (handles Render cold start)
+    let result
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        result = await transcribeVoice(blob)
+        break
+      } catch (err) {
+        if (attempt === 0) {
+          await new Promise(r => setTimeout(r, 3000))
+          continue
+        }
+        addMessage({
+          sender: 'ai',
+          text: 'Не удалось распознать голос. Попробуй ещё раз.',
+          type: 'text',
+        })
+        return
+      }
     }
+    if (result?.text) await send(result.text)
   }
 
   const handlePhotoUpload = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -225,6 +245,8 @@ export default function Chat({ onOpenMatch, onNavigateTo, isReturning = false, s
               setQuickReplies([])
             }}
             onUploadPhoto={() => fileInputRef.current?.click()}
+            onViewCard={(card) => setViewingCard(card)}
+            onOpenMatch={onOpenMatch}
           />
         ))}
 
@@ -256,10 +278,8 @@ export default function Chat({ onOpenMatch, onNavigateTo, isReturning = false, s
         )}
       </div>
 
-      {/* Quick replies */}
       <QuickReplies replies={quickReplies} onSelect={(text) => send(text)} />
 
-      {/* Hidden file input for photo upload */}
       <input
         ref={fileInputRef}
         type="file"
@@ -268,12 +288,94 @@ export default function Chat({ onOpenMatch, onNavigateTo, isReturning = false, s
         onChange={handlePhotoUpload}
       />
 
-      {/* Input */}
       <InputBar onSendText={send} onSendVoice={handleSendVoice} />
 
-      {/* Settings sheet */}
       {isMenuOpen && (
         <SettingsSheet onClose={() => setIsMenuOpen(false)} />
+      )}
+
+      {/* Profile modal for user card */}
+      {viewingCard && (
+        <div style={{
+          position: 'fixed', inset: 0, zIndex: 100,
+          background: 'rgba(0,0,0,0.7)', backdropFilter: 'blur(4px)',
+          display: 'flex', alignItems: 'flex-end',
+          animation: 'mp 0.2s ease both',
+        }} onClick={() => setViewingCard(null)}>
+          <div onClick={e => e.stopPropagation()} style={{
+            width: '100%', maxHeight: '90dvh', overflowY: 'auto',
+            background: 'var(--bg)', borderRadius: '20px 20px 0 0',
+            padding: '0 0 32px',
+          }}>
+            {/* Photo */}
+            <div style={{ height: 280, background: 'var(--bg3)', position: 'relative', borderRadius: '20px 20px 0 0', overflow: 'hidden' }}>
+              {viewingCard.photo_url
+                ? <img src={viewingCard.photo_url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                : <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 48 }}>👤</div>
+              }
+              <button onClick={() => setViewingCard(null)} style={{
+                position: 'absolute', top: 14, right: 14,
+                width: 32, height: 32, borderRadius: '50%',
+                background: 'rgba(0,0,0,0.5)', border: 'none',
+                color: '#fff', fontSize: 16, cursor: 'pointer',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+              }}>✕</button>
+              {/* Compatibility badge */}
+              <div style={{
+                position: 'absolute', bottom: 14, right: 14,
+                background: 'rgba(0,0,0,0.7)', border: '1px solid rgba(255,255,255,0.15)',
+                borderRadius: 8, padding: '4px 10px',
+                fontSize: 12, fontWeight: 700, color: '#fff',
+              }}>
+                {viewingCard.compatibility_score}% {viewingCard.compatibility_label}
+              </div>
+            </div>
+
+            <div style={{ padding: '20px 20px 0' }}>
+              {/* Name + basic info */}
+              <div style={{ fontSize: 22, fontWeight: 700, color: 'var(--w)', marginBottom: 4 }}>
+                {viewingCard.name}{viewingCard.age ? `, ${viewingCard.age}` : ''}
+              </div>
+              <div style={{ fontSize: 14, color: 'var(--d3)', marginBottom: 16 }}>
+                {[viewingCard.city, viewingCard.goal].filter(Boolean).join(' · ')}
+              </div>
+
+              {/* Personality type chip */}
+              {viewingCard.personality_type && (
+                <div style={{
+                  display: 'inline-block',
+                  background: 'var(--bg3)', border: '1px solid var(--l)',
+                  borderRadius: 8, padding: '5px 12px',
+                  fontSize: 12, color: 'var(--d2)', marginBottom: 16,
+                }}>
+                  {viewingCard.personality_type}
+                </div>
+              )}
+
+              {/* Profile text */}
+              {viewingCard.profile_text && (
+                <div style={{ fontSize: 14, color: 'var(--d2)', lineHeight: 1.65, marginBottom: 20 }}>
+                  {viewingCard.profile_text}
+                </div>
+              )}
+
+              {/* Actions */}
+              <div style={{ display: 'flex', gap: 10 }}>
+                <button
+                  onClick={() => { setViewingCard(null); onNavigateTo('discovery') }}
+                  style={{
+                    flex: 1, padding: '13px', borderRadius: 12,
+                    background: 'var(--w)', border: 'none',
+                    color: 'var(--bg)', fontSize: 14, fontWeight: 600,
+                    cursor: 'pointer', fontFamily: 'Inter',
+                  }}
+                >
+                  Открыть в Люди
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
       )}
 
       <style>{`

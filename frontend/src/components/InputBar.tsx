@@ -4,7 +4,7 @@ import { useVoiceRecord } from '../hooks/useVoiceRecord'
 
 interface InputBarProps {
   onSendText: (text: string) => void
-  onSendVoice: (blob: Blob) => void
+  onSendVoice: (blob: Blob, durationSecs: number) => void
 }
 
 export default function InputBar({ onSendText, onSendVoice }: InputBarProps) {
@@ -37,12 +37,13 @@ export default function InputBar({ onSendText, onSendVoice }: InputBarProps) {
 
   const handleToggleRecord = useCallback(async () => {
     if (isRecording) {
+      const duration = seconds
       const blob = await stop()
-      if (blob) onSendVoice(blob)
+      if (blob) onSendVoice(blob, duration)
     } else {
       start()
     }
-  }, [isRecording, start, stop, onSendVoice])
+  }, [isRecording, seconds, start, stop, onSendVoice])
 
   const hasText = text.trim().length > 0
 

@@ -25,6 +25,9 @@ export default function App() {
       tg.ready()
     }
 
+    // Silent warmup ping to prevent cold-start issues on Render
+    fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/health`).catch(() => {})
+
     initAuth()
       .then(() => getChatStatus())
       .then((status) => {
