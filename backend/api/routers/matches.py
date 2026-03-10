@@ -13,8 +13,41 @@ from core.config import settings
 from core.storage import get_photo_signed_url
 from core.telegram import send_notification
 from db.connection import get_db
-from modules.users.models import DailyMatchQuota, Match, MatchMessage, Photo, User
+from modules.users.models import DailyMatchQuota, InterviewSession, Match, MatchMessage, Photo, User
 from modules.users.repository import get_user
+
+
+def _to_list(val) -> list:
+    if not val:
+        return []
+    if isinstance(val, list):
+        return val
+    if isinstance(val, dict):
+        return val.get("items", list(val.values()))
+    return []
+
+
+def _profile_completeness(user: User) -> tuple[str, list[str]]:
+    """Return (level, missing_categories) for the current user's own profile."""
+    missing: list[str] = []
+    if not _to_list(user.strengths):
+        missing.append("interests")
+    if not user.occupation:
+        missing.append("work")
+    if not user.personality_type:
+        missing.append("values")
+    if not user.profile_text or len(user.profile_text) < 80:
+        missing.append("life_goals")
+    if not _to_list(user.ideal_partner_traits):
+        missing.append("relationship_style")
+
+    if len(missing) >= 4:
+        level = "low"
+    elif len(missing) >= 2:
+        level = "medium"
+    else:
+        level = "full"
+    return level, missing
 
 
 def _is_online(last_seen: datetime | None) -> bool:
@@ -231,6 +264,24 @@ async def get_matches(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
+    # Compute current user's profile completeness once
+    completeness_level, missing_cats = _profile_completeness(user)
+
+    # Persist missing_for_compatibility to collected_data for the AI agent to use
+    if missing_cats:
+        try:
+            session = await db.get(InterviewSession, user.id)
+            if session:
+                cd = dict(session.collected_data or {})
+                if cd.get("missing_for_compatibility") != missing_cats:
+                    cd["missing_for_compatibility"] = missing_cats
+                    from sqlalchemy.orm.attributes import flag_modified
+                    session.collected_data = cd
+                    flag_modified(session, "collected_data")
+                    await db.commit()
+        except Exception:
+            pass
+
     # Get matches where user is involved and not archived by this user
     result = await db.execute(
         select(Match)
@@ -322,7 +373,12 @@ async def get_matches(
             "has_unread": has_unread,
         })
 
-    return {"matches": match_list, "remaining_today": max(0, remaining)}
+    return {
+        "matches": match_list,
+        "remaining_today": max(0, remaining),
+        "my_profile_completeness": completeness_level,
+        "my_missing_categories": missing_cats,
+    }
 
 
 @router.post("/{match_id}/action")

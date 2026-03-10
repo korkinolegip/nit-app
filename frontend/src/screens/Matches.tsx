@@ -43,18 +43,25 @@ export default function Matches({ onBack, onOpenChat, chatsOnly = false }: Match
   const [loading, setLoading] = useState(true)
   const [acting, setActing] = useState<number | null>(null)
   const [viewingMatch, setViewingMatch] = useState<Match | null>(null)
+  const [profileCompleteness, setProfileCompleteness] = useState<'low' | 'medium' | 'full'>('full')
   const profileOpenTimeRef = useRef<number>(0)
 
   useEffect(() => {
     getMatches()
-      .then(data => setMatches(data.matches))
+      .then(data => {
+        setMatches(data.matches)
+        setProfileCompleteness(data.my_profile_completeness || 'full')
+      })
       .catch(() => {})
       .finally(() => setLoading(false))
 
     // Poll every 60s when screen is visible — refreshes partner profile data
     const poll = () => {
       if (document.visibilityState === 'visible') {
-        getMatches().then(data => setMatches(data.matches)).catch(() => {})
+        getMatches().then(data => {
+          setMatches(data.matches)
+          setProfileCompleteness(data.my_profile_completeness || 'full')
+        }).catch(() => {})
       }
     }
     const interval = setInterval(poll, 60_000)
@@ -195,6 +202,8 @@ export default function Matches({ onBack, onOpenChat, chatsOnly = false }: Match
                       acting={acting === m.match_id}
                       onAction={handleAction}
                       onViewProfile={() => openProfile(m)}
+                      profileCompleteness={profileCompleteness}
+                      onCompleteProfile={onBack}
                     />
                   ))}
                 </div>
@@ -382,11 +391,13 @@ export default function Matches({ onBack, onOpenChat, chatsOnly = false }: Match
   )
 }
 
-function MatchCard({ match: m, acting, onAction, onViewProfile }: {
+function MatchCard({ match: m, acting, onAction, onViewProfile, profileCompleteness, onCompleteProfile }: {
   match: Match
   acting: boolean
   onAction: (id: number, action: 'like' | 'skip') => void
   onViewProfile: () => void
+  profileCompleteness?: 'low' | 'medium' | 'full'
+  onCompleteProfile?: () => void
 }) {
   const photo = m.user.photos.find(p => p.is_primary) || m.user.photos[0]
 
@@ -472,6 +483,35 @@ function MatchCard({ match: m, acting, onAction, onViewProfile }: {
           </div>
         )}
       </div>
+
+      {/* Profile completeness hint */}
+      {(profileCompleteness === 'low' || profileCompleteness === 'medium') && (
+        <div style={{
+          margin: '0 16px 12px',
+          padding: '10px 12px',
+          background: 'rgba(255,255,255,.04)',
+          border: '1px solid rgba(255,255,255,.1)',
+          borderRadius: 12,
+          display: 'flex', alignItems: 'center', gap: 10,
+        }}>
+          <div style={{ flex: 1, fontSize: 12, color: 'var(--d3)', lineHeight: 1.5 }}>
+            {profileCompleteness === 'low'
+              ? 'Анализ неполный — расскажи о себе больше для точного подбора'
+              : 'Для глубокого анализа дополни профиль'}
+          </div>
+          <button
+            onClick={onCompleteProfile}
+            style={{
+              padding: '6px 10px', background: 'none',
+              border: '1px solid rgba(255,255,255,.2)', borderRadius: 8,
+              color: 'var(--d2)', fontSize: 11, fontWeight: 600,
+              cursor: 'pointer', fontFamily: 'Inter', whiteSpace: 'nowrap', flexShrink: 0,
+            }}
+          >
+            Дополнить
+          </button>
+        </div>
+      )}
 
       {/* Actions */}
       <div style={{ display: 'flex', gap: 8, padding: '0 16px 16px' }}>

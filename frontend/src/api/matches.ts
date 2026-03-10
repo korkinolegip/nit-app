@@ -48,6 +48,8 @@ export async function deleteMatchChat(matchId: number): Promise<void> {
 export interface MatchesResponse {
   matches: Match[]
   remaining_today: number
+  my_profile_completeness: 'low' | 'medium' | 'full'
+  my_missing_categories: string[]
 }
 
 export async function getMatches(offset = 0): Promise<MatchesResponse> {

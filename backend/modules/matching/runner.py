@@ -1,3 +1,4 @@
+import hashlib
 import logging
 
 import httpx
@@ -12,38 +13,88 @@ from modules.users.models import Match, User
 logger = logging.getLogger(__name__)
 
 
+def _to_list(val) -> list:
+    if not val:
+        return []
+    if isinstance(val, list):
+        return val
+    if isinstance(val, dict):
+        return val.get("items", list(val.values()))
+    return []
+
+
+def _profile_block(u: User) -> str:
+    GOALS = {"romantic": "романтические отношения", "friendship": "дружба", "open": "открыт к общению"}
+    ATTACHMENTS = {"secure": "надёжный", "anxious": "тревожный", "avoidant": "избегающий", "disorganized": "дезорганизованный"}
+    lines = [f"Имя: {u.name or '?'}, возраст: {u.age or '?'} лет"]
+    if u.occupation:
+        lines.append(f"Занятие: {u.occupation}")
+    if u.goal:
+        lines.append(f"Ищет: {GOALS.get(u.goal, u.goal)}")
+    strengths = _to_list(u.strengths)
+    if strengths:
+        lines.append(f"Интересы / сильные стороны: {', '.join(strengths[:8])}")
+    traits = _to_list(u.ideal_partner_traits)
+    if traits:
+        lines.append(f"Ищет в партнёре: {', '.join(traits[:6])}")
+    if u.personality_type:
+        lines.append(f"Тип личности: {u.personality_type}")
+    if u.attachment_hint:
+        lines.append(f"Тип привязанности: {ATTACHMENTS.get(u.attachment_hint, u.attachment_hint)}")
+    if u.profile_text:
+        lines.append(f"О себе: {u.profile_text[:300]}")
+    return "\n".join(lines)
+
+
+def _data_score(u: User) -> int:
+    """Count how many meaningful data points this user has (0-5)."""
+    return sum(1 for x in [
+        u.occupation,
+        u.personality_type,
+        u.profile_text and len(u.profile_text) > 50,
+        _to_list(u.strengths),
+        _to_list(u.ideal_partner_traits),
+    ] if x)
+
+
 async def _get_ai_explanation(user_a: User, user_b: User) -> str | None:
-    """Ask Groq to explain why these two people might be compatible."""
+    """Deep psychologist-style compatibility analysis for this specific pair."""
     if not settings.GROQ_API_KEY:
         return None
 
-    def _profile(u: User) -> str:
-        parts = [f"{u.name or '?'}, {u.age or '?'} лет, {u.city or '?'}"]
-        if u.goal:
-            goals = {"romantic": "романтические отношения", "friendship": "дружба", "open": "открыт к общению"}
-            parts.append(f"ищет: {goals.get(u.goal, u.goal)}")
-        if u.personality_type:
-            parts.append(f"тип личности: {u.personality_type}")
-        if u.profile_text:
-            parts.append(u.profile_text[:200])
-        return ", ".join(parts)
+    pair_hash = hashlib.md5(
+        f"{min(user_a.id, user_b.id)}-{max(user_a.id, user_b.id)}".encode()
+    ).hexdigest()[:8]
+
+    data_a = _data_score(user_a)
+    data_b = _data_score(user_b)
+    limited_data = data_a < 2 or data_b < 2
+    data_note = "\nДанных мало — честно укажи, что анализ неполный и основан только на имеющейся информации." if limited_data else ""
 
     prompt = (
-        "Кратко объясни (1-2 предложения на русском), почему эти два человека могут подойти друг другу. "
-        "Пиши тепло, без шаблонов, про их конкретные черты.\n\n"
-        f"Человек A: {_profile(user_a)}\n"
-        f"Человек B: {_profile(user_b)}"
+        f"Ты опытный психолог и специалист по совместимости. [seed:{pair_hash}]\n"
+        "Проанализируй двух конкретных людей как профессионал. Пиши по-русски, на «ты».\n\n"
+        f"Пользователь 1:\n{_profile_block(user_a)}\n\n"
+        f"Пользователь 2:\n{_profile_block(user_b)}\n\n"
+        "Напиши анализ (4-5 предложений):\n"
+        "1. СХОДСТВА — что конкретно общего (только на основе реальных данных)\n"
+        "2. НАПРЯЖЕНИЕ — где возможны трения (разные цели, темп, тип привязанности)\n"
+        "3. ДИНАМИКА — как эти двое будут взаимодействовать\n"
+        "4. ВЫВОД — стоит ли попробовать и почему\n\n"
+        "Запрещено: шаблонные фразы без опоры на данные. Каждое утверждение = конкретный факт из профилей."
+        f"{data_note}"
     )
+
     try:
-        async with httpx.AsyncClient(timeout=10) as client:
+        async with httpx.AsyncClient(timeout=15) as client:
             r = await client.post(
                 "https://api.groq.com/openai/v1/chat/completions",
                 headers={"Authorization": f"Bearer {settings.GROQ_API_KEY}"},
                 json={
                     "model": "llama-3.3-70b-versatile",
                     "messages": [{"role": "user", "content": prompt}],
-                    "max_tokens": 120,
-                    "temperature": 0.8,
+                    "max_tokens": 300,
+                    "temperature": 0.9,
                 },
             )
             if r.status_code == 200:
