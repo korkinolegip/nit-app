@@ -259,8 +259,8 @@ async def _find_people_cards(user: User, db: AsyncSession) -> tuple[str, dict | 
     from modules.matching.runner import run_matching_for_user
     from core.storage import get_photo_signed_url
 
-    # Always try to run matching; include users without photos (require_active=False)
-    await run_matching_for_user(user.id, db, require_active=False)
+    # Run matching with all_genders=True so friendship/open searches find everyone
+    await run_matching_for_user(user.id, db, require_active=False, all_genders=True)
 
     # Get pending matches (not yet actioned by current user)
     matches_result = await db.execute(

@@ -54,13 +54,13 @@ async def _get_ai_explanation(user_a: User, user_b: User) -> str | None:
     return None
 
 
-async def run_matching_for_user(user_id: int, db: AsyncSession, require_active: bool = True) -> int:
+async def run_matching_for_user(user_id: int, db: AsyncSession, require_active: bool = True, all_genders: bool = False) -> int:
     """Find candidates and create pending Match records. Returns count created."""
     user = await db.get(User, user_id)
     if not user:
         return 0
 
-    candidates = await find_match_candidates(user_id, db, require_active=require_active)
+    candidates = await find_match_candidates(user_id, db, require_active=require_active, all_genders=all_genders)
     created = 0
     new_matches: list[tuple[Match, int]] = []
 

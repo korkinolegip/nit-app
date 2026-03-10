@@ -6,20 +6,25 @@ from modules.users.repository import get_embedding, get_user
 
 
 async def find_match_candidates(
-    user_id: int, db: AsyncSession, limit: int = 50, require_active: bool = True
+    user_id: int,
+    db: AsyncSession,
+    limit: int = 50,
+    require_active: bool = True,
+    all_genders: bool = False,
 ) -> list[tuple[int, float]]:
     user = await get_user(db, user_id)
     if not user:
         return []
 
-    if user.partner_preference == "male":
+    if all_genders:
+        gender_filter = ["male", "female", "other"]
+    elif user.partner_preference == "male":
         gender_filter = ["male"]
     elif user.partner_preference == "female":
         gender_filter = ["female"]
     else:
         gender_filter = ["male", "female", "other"]
 
-    # Use vector ordering if user has embedding, else random
     has_embedding = await get_embedding(db, user_id)
 
     active_clause = "AND u.is_active = TRUE" if require_active else "AND u.name IS NOT NULL"

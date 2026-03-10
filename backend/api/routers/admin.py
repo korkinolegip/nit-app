@@ -266,7 +266,7 @@ async def trigger_matching_all(
     total = 0
     details = []
     for u in users:
-        count = await run_matching_for_user(u.id, db, require_active=False)
+        count = await run_matching_for_user(u.id, db, require_active=False, all_genders=True)
         if count:
             total += count
             details.append({"user_id": u.id, "name": u.name, "matches_created": count})
