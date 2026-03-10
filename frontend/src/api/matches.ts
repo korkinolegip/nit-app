@@ -20,6 +20,11 @@ export interface Match {
   compatibility_score: number
   explanation: string | null
   user_action: 'like' | 'skip' | null
+  restore_count: number
+}
+
+export async function restoreSkip(matchId: number) {
+  return apiRequest(`/api/matches/${matchId}/restore`, { method: 'POST' })
 }
 
 export interface MatchesResponse {

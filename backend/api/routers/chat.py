@@ -80,9 +80,11 @@ async def clear_chat_history(
     db: AsyncSession = Depends(get_db),
 ):
     """Clear the user's interview session messages (keeps profile data)."""
+    from sqlalchemy.orm.attributes import flag_modified
     session = await get_interview_session(db, user.id)
     if session:
         session.messages = []
+        flag_modified(session, "messages")
         await db.commit()
     return {"ok": True}
 
@@ -142,7 +144,7 @@ async def send_message(
             )
 
         photos = await get_user_photos(db, user.id)
-        result = await process_post_onboarding_turn(text, user, has_photos=len(photos) > 0)
+        result = await process_post_onboarding_turn(text, user, session, db, has_photos=len(photos) > 0)
 
         # Apply profile edits if AI detected them
         edit_fields = result.get("edit_fields", {})

@@ -151,6 +151,7 @@ async def get_matches(
             "compatibility_score": m.compatibility_score,
             "explanation": m.explanation_text,
             "user_action": user_action,
+            "restore_count": m.user1_restore_count if m.user1_id == user.id else m.user2_restore_count,
         })
 
     return {"matches": match_list, "remaining_today": max(0, remaining)}
@@ -226,3 +227,35 @@ async def match_action(
         "date_prep": date_prep,
         "match_chat_id": match_chat_id,
     }
+
+
+@router.post("/{match_id}/restore")
+async def restore_skip(
+    match_id: int,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Undo a skip action. Allowed up to 2 times per match."""
+    match = await db.get(Match, match_id)
+    if not match:
+        raise HTTPException(404, "Match not found")
+
+    if match.user1_id == user.id:
+        if match.user1_action != "skip":
+            raise HTTPException(400, "This match was not skipped")
+        if match.user1_restore_count >= 2:
+            raise HTTPException(400, "Restore limit reached")
+        match.user1_action = None
+        match.user1_restore_count = (match.user1_restore_count or 0) + 1
+    elif match.user2_id == user.id:
+        if match.user2_action != "skip":
+            raise HTTPException(400, "This match was not skipped")
+        if match.user2_restore_count >= 2:
+            raise HTTPException(400, "Restore limit reached")
+        match.user2_action = None
+        match.user2_restore_count = (match.user2_restore_count or 0) + 1
+    else:
+        raise HTTPException(403, "Not your match")
+
+    await db.commit()
+    return {"ok": True}

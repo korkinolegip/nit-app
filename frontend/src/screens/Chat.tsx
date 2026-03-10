@@ -176,15 +176,16 @@ export default function Chat({ onOpenMatch, onNavigateTo, isReturning = false, s
               onClick={() => onNavigateTo(item.id)}
               title={item.label}
               style={{
-                width: '32px', height: '32px', borderRadius: '8px',
-                border: '1px solid var(--l)', display: 'flex',
+                width: '38px', height: '38px', borderRadius: '10px',
+                border: '1px solid var(--l)', display: 'flex', flexDirection: 'column',
                 alignItems: 'center', justifyContent: 'center', cursor: 'pointer',
-                background: 'none', color: 'rgba(255,255,255,.4)',
-                transition: 'all 0.15s',
+                background: 'none', color: 'rgba(255,255,255,.5)',
+                gap: '3px', transition: 'all 0.15s',
               }}
               className="nav-icon-btn"
             >
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none">{item.path}</svg>
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none">{item.path}</svg>
+              <span style={{ fontSize: '8px', fontWeight: 600, letterSpacing: '.04em', color: 'inherit', lineHeight: 1 }}>{item.label}</span>
             </button>
           ))}
           <button

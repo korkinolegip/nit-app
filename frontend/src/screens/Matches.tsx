@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { getMatches, matchAction, Match } from '../api/matches'
+import { getMatches, matchAction, restoreSkip, Match } from '../api/matches'
 
 interface MatchesProps {
   onBack: () => void
@@ -20,6 +20,21 @@ export default function Matches({ onBack, onOpenChat }: MatchesProps) {
 
   const pending = matches.filter(m => m.user_action === null)
   const liked = matches.filter(m => m.user_action === 'like')
+  const skipped = matches.filter(m => m.user_action === 'skip' && m.restore_count < 2)
+
+  const handleRestore = async (matchId: number) => {
+    setActing(matchId)
+    try {
+      await restoreSkip(matchId)
+      setMatches(prev => prev.map(m =>
+        m.match_id === matchId ? { ...m, user_action: null, restore_count: m.restore_count + 1 } : m
+      ))
+    } catch {
+      // ignore
+    } finally {
+      setActing(null)
+    }
+  }
 
   const handleAction = async (matchId: number, action: 'like' | 'skip') => {
     setActing(matchId)
@@ -115,6 +130,53 @@ export default function Matches({ onBack, onOpenChat }: MatchesProps) {
                       </div>
                     </div>
                   ))}
+                </div>
+              </>
+            )}
+            {/* Skipped matches (restorable) */}
+            {skipped.length > 0 && (
+              <>
+                <div style={{ fontSize: 11, fontWeight: 600, letterSpacing: '.08em', color: 'var(--d3)', textTransform: 'uppercase', marginBottom: 12, marginTop: liked.length > 0 ? 24 : 0 }}>
+                  Пропущено — {skipped.length}
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  {skipped.map(m => {
+                    const photo = m.user.photos.find(p => p.is_primary) || m.user.photos[0]
+                    return (
+                      <div key={m.match_id} style={{
+                        background: 'var(--bg3)', border: '1px solid var(--l)', borderRadius: 14,
+                        padding: '12px 14px', display: 'flex', alignItems: 'center', gap: 12, opacity: 0.75,
+                      }}>
+                        <div style={{
+                          width: 44, height: 44, borderRadius: 12, background: 'var(--bg)',
+                          border: '1px solid var(--l)', overflow: 'hidden', flexShrink: 0,
+                          display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18,
+                        }}>
+                          {photo?.url
+                            ? <img src={photo.url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                            : m.user.name[0]
+                          }
+                        </div>
+                        <div style={{ flex: 1 }}>
+                          <div style={{ fontSize: 14, fontWeight: 500, color: 'var(--d2)' }}>{m.user.name}, {m.user.age}</div>
+                          <div style={{ fontSize: 11, color: 'var(--d4)', marginTop: 2 }}>
+                            {Math.round(m.compatibility_score)}% · осталось восстановлений: {2 - m.restore_count}
+                          </div>
+                        </div>
+                        <button
+                          onClick={() => handleRestore(m.match_id)}
+                          disabled={acting === m.match_id}
+                          style={{
+                            padding: '7px 14px', background: 'none',
+                            border: '1px solid var(--l)', borderRadius: 10,
+                            color: 'var(--d2)', fontSize: 12, fontWeight: 500, cursor: 'pointer', fontFamily: 'Inter',
+                          }}
+                        >
+                          Вернуть
+                        </button>
+                      </div>
+                    )
+                  })}
                 </div>
               </>
             )}

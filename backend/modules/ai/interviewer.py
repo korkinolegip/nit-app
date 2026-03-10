@@ -79,35 +79,43 @@ INTERVIEWER_SYSTEM_PROMPT = """
 }
 """
 
-POST_ONBOARDING_PROMPT = """
-Ты — AI-агент Нить. Профиль пользователя уже создан.
+COMPANION_SYSTEM_PROMPT = """
+Ты — Нить, тёплый и внимательный AI-компаньон. Ты помогаешь людям лучше понять себя и найти глубокую связь с другим человеком.
 
-Ты знаешь как работает приложение:
-- После создания профиля нужно добавить фото (до 5 штук)
-- После фото алгоритм подберёт совместимых людей (до 5 в день)
-- Если оба написали — открывается чат на 48 часов
+КТО ТЫ:
+- Умный друг, который умеет слушать и задавать точные вопросы
+- Ты помнишь всё, что пользователь рассказывал раньше — и возвращаешься к важным темам
+- Ты интересуешься человеком по-настоящему — не по скрипту
 
-ЗАДАЧИ:
-1. Отвечай на вопросы пользователя коротко и тепло (1-3 предложения)
-2. Если пользователь просит изменить что-то в профиле — обнови нужные поля в edit_fields
-3. Если пользователь хочет добавить/загрузить/изменить фото — установи wants_photo_upload: true
+О ЧЁМ ТЫ ГОВОРИШЬ:
+- Отношения, ценности, то, что важно в жизни
+- Страхи и надежды в близости
+- Что человек ищет и почему
+- Его взлёты и переживания
+- Как он видит себя в паре
+- Прошлый опыт — если сам поднимает тему
+- Вопросы самопознания
+
+ЧТО ТЫ ДЕЛАЕШЬ:
+1. Отвечаешь на сообщения тепло, точно, 1-4 предложения
+2. Иногда сам поднимаешь тему — короткий вопрос в конце ответа, если это уместно
+3. Если просят изменить профиль — обновляешь edit_fields
+4. Если хотят добавить фото — wants_photo_upload: true
 
 ПРАВИЛА:
-- НЕ здоровайся повторно
-- Если просят изменить имя/возраст/город/занятие/цель — верни обновлённые поля в edit_fields
-- Поддерживаемые поля для редактирования: name, age, city, occupation, goal
-- goal допустимые значения: romantic, friendship, hobby_partner, travel_companion, professional, open
-- Если пишут "хочу добавить фото", "загрузить фото", "добавь фото", "изменить фото" и т.п. — wants_photo_upload: true
+- Не здоровайся заново
+- Не повторяй то, что уже сказал в предыдущих сообщениях
+- Не давай банальных советов
+- Не говори как коуч или психолог — говори как умный друг
+- Помни контекст из истории разговора
+- Редактируемые поля: name, age, city, occupation, goal (romantic/friendship/hobby_partner/travel_companion/professional/open)
 
 Верни ТОЛЬКО JSON без markdown:
 {
-  "message": "твой ответ пользователю (1-3 предложения)",
+  "message": "твой ответ (1-4 предложения)",
   "edit_fields": {},
   "wants_photo_upload": false
 }
-
-Пример фото: {"message": "Конечно! Нажми кнопку ниже чтобы загрузить фото.", "edit_fields": {}, "wants_photo_upload": true}
-Пример города: {"message": "Обновила город на Воронеж!", "edit_fields": {"city": "Воронеж"}, "wants_photo_upload": false}
 """
 
 
@@ -168,44 +176,84 @@ async def process_interview_turn(
     return result
 
 
-async def process_post_onboarding_turn(user_message: str, user: User, has_photos: bool = False) -> dict:
-    """Returns dict with 'message' and optionally 'edit_fields'."""
+async def process_post_onboarding_turn(
+    user_message: str,
+    user: User,
+    session: InterviewSession,
+    db: AsyncSession,
+    has_photos: bool = False,
+) -> dict:
+    """Companion mode: maintains full conversation history, saves to session."""
     client = get_openai_client()
 
-    if has_photos or user.onboarding_step == "complete":
-        photo_status = "Фото уже добавлены. Профиль полностью готов, алгоритм ищет совместимых людей."
-    else:
-        photo_status = "Фото ещё не добавлены — следующий шаг: добавить фото (кнопка в чате)."
+    # Build rich user context
+    goal_labels = {
+        "romantic": "романтические отношения", "friendship": "дружба",
+        "hobby_partner": "партнёр по интересам", "travel_companion": "попутчик",
+        "professional": "деловые связи", "open": "открыт к любому",
+    }
+    strengths = (user.strengths or {}).get("items", [])
+    traits = (user.ideal_partner_traits or {}).get("items", [])
 
-    user_context = (
-        f"Данные пользователя: имя={user.name or '?'}, возраст={user.age or '?'}, "
-        f"город={user.city or '?'}, занятие={user.occupation or '?'}, цель={user.goal or '?'}. "
-        f"{photo_status}"
-    )
+    ctx_parts = [f"Пользователь: {user.name or '?'}, {user.age or '?'} лет, {user.city or '?'}"]
+    if user.occupation:
+        ctx_parts.append(f"Занятие: {user.occupation}")
+    if user.goal:
+        ctx_parts.append(f"Ищет: {goal_labels.get(user.goal, user.goal)}")
+    if user.personality_type:
+        ctx_parts.append(f"Тип личности: {user.personality_type}")
+    if user.profile_text:
+        ctx_parts.append(f"Психологический портрет: {user.profile_text[:300]}")
+    if strengths:
+        ctx_parts.append(f"Сильные стороны: {', '.join(strengths[:5])}")
+    if traits:
+        ctx_parts.append(f"Ищет в партнёре: {', '.join(traits[:5])}")
+    if has_photos:
+        ctx_parts.append("Фото загружены. Профиль полностью готов.")
+    else:
+        ctx_parts.append("Фото ещё не добавлены.")
+
+    user_context = "\n".join(ctx_parts)
+    system = COMPANION_SYSTEM_PROMPT + "\n\nКОНТЕКСТ:\n" + user_context
+
+    # Use last 30 messages from history (skip interview messages if too many)
+    history = list(session.messages) if session.messages else []
+    recent = history[-30:] if len(history) > 30 else history
+
+    messages_payload = [
+        {"role": "system", "content": system},
+        *recent,
+        {"role": "user", "content": user_message},
+    ]
 
     async def _call():
         return await client.chat.completions.create(
             model=settings.OPENAI_CHAT_MODEL,
-            messages=[
-                {"role": "system", "content": POST_ONBOARDING_PROMPT + "\n\n" + user_context},
-                {"role": "user", "content": user_message},
-            ],
+            messages=messages_payload,
             response_format={"type": "json_object"},
-            temperature=0.6,
-            max_tokens=300,
+            temperature=0.75,
+            max_tokens=400,
         )
 
     response = await openai_call_with_retry(_call)
     if response is None:
-        fallback = "Профиль создан, алгоритм ищет совместимых людей." if has_photos else "Следующий шаг — добавить фото. Нажми кнопку «Добавить фото» ниже."
-        return {"message": fallback, "edit_fields": {}}
+        return {"message": "Секунду, попробуй ещё раз.", "edit_fields": {}}
 
     try:
         result = json.loads(response.choices[0].message.content or "{}")
         if "message" not in result:
             result["message"] = str(result)
-        if "edit_fields" not in result:
-            result["edit_fields"] = {}
-        return result
+        result.setdefault("edit_fields", {})
+        result.setdefault("wants_photo_upload", False)
     except json.JSONDecodeError:
-        return {"message": response.choices[0].message.content or "", "edit_fields": {}}
+        result = {"message": response.choices[0].message.content or "", "edit_fields": {}, "wants_photo_upload": False}
+
+    # Save messages to session history
+    new_history = history + [
+        {"role": "user", "content": user_message},
+        {"role": "assistant", "content": result["message"]},
+    ]
+    session.messages = new_history
+    await save_interview_session(db, session)
+
+    return result

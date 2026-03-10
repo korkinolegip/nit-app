@@ -161,6 +161,8 @@ class Match(Base):
 
     user1_action: Mapped[str | None] = mapped_column(String(10))
     user2_action: Mapped[str | None] = mapped_column(String(10))
+    user1_restore_count: Mapped[int] = mapped_column(SmallInteger, default=0, server_default='0')
+    user2_restore_count: Mapped[int] = mapped_column(SmallInteger, default=0, server_default='0')
 
     status: Mapped[str] = mapped_column(String(20), default="pending")
 
