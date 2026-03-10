@@ -62,6 +62,8 @@ async def get_messages(
         raise HTTPException(404, "Match not found")
     if user.id not in (match.user1_id, match.user2_id):
         raise HTTPException(403, "Not your match")
+    if match.status not in ("accepted", "matched") and match.chat_status not in ("open", "matched", "exchanged"):
+        raise HTTPException(403, "Chat not accepted yet")
 
     query = select(MatchMessage).where(MatchMessage.match_id == match_id)
     if before_id:

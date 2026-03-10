@@ -24,12 +24,21 @@ export interface Match {
   compatibility_score: number
   explanation: string | null
   user_action: 'like' | 'skip' | null
+  match_status: 'pending' | 'accepted' | 'declined' | 'matched' | null
   restore_count: number
   has_unread: boolean
 }
 
 export async function restoreSkip(matchId: number) {
   return apiRequest(`/api/matches/${matchId}/restore`, { method: 'POST' })
+}
+
+export async function acceptMatch(matchId: number): Promise<{ ok: boolean; match_chat_id: number }> {
+  return apiRequest(`/api/matches/${matchId}/accept`, { method: 'POST' })
+}
+
+export async function declineMatch(matchId: number): Promise<{ ok: boolean }> {
+  return apiRequest(`/api/matches/${matchId}/decline`, { method: 'POST' })
 }
 
 export async function deleteMatchChat(matchId: number): Promise<void> {

@@ -193,16 +193,18 @@ async def like_user_directly(
     match_chat_id = None
     now = datetime.now(timezone.utc)
 
-    if match.chat_status not in ("open", "matched", "exchanged"):
-        match.chat_status = "open"
-        match.chat_opened_at = now
-        match.chat_deadline = now + timedelta(hours=settings.MATCH_CHAT_HOURS)
-
-    match_chat_id = match.id
-
     if mutual:
-        match.status = "matched"
+        # Both liked → accepted, open chat
+        match.status = "accepted"
         match.matched_at = now
+        if match.chat_status not in ("open", "matched", "exchanged"):
+            match.chat_status = "open"
+            match.chat_opened_at = now
+            match.chat_deadline = now + timedelta(hours=settings.MATCH_CHAT_HOURS)
+        match_chat_id = match.id
+    else:
+        # One-sided like: pending, chat stays closed
+        match.status = "pending"
 
     await db.commit()
 
@@ -315,6 +317,7 @@ async def get_matches(
             "compatibility_score": m.compatibility_score,
             "explanation": m.explanation_text,
             "user_action": user_action,
+            "match_status": m.status,
             "restore_count": m.user1_restore_count if m.user1_id == user.id else m.user2_restore_count,
             "has_unread": has_unread,
         })
@@ -346,20 +349,22 @@ async def match_action(
     match_chat_id = None
 
     if body.action == "like":
-        # Open chat immediately on first like (no mutual requirement for MVP)
-        if match.chat_status != "open":
-            match.chat_status = "open"
-            match.chat_opened_at = datetime.now(timezone.utc)
-            match.chat_deadline = datetime.now(timezone.utc) + timedelta(
-                hours=settings.MATCH_CHAT_HOURS
-            )
-        match_chat_id = match.id
-
-        # Mutual match: both liked
+        now_dt = datetime.now(timezone.utc)
+        # Mutual match: both liked → accept and open chat
         if match.user1_action == "like" and match.user2_action == "like":
             mutual = True
-            match.status = "matched"
-            match.matched_at = datetime.now(timezone.utc)
+            match.status = "accepted"
+            match.matched_at = now_dt
+            if match.chat_status not in ("open", "matched", "exchanged"):
+                match.chat_status = "open"
+                match.chat_opened_at = now_dt
+                match.chat_deadline = now_dt + timedelta(hours=settings.MATCH_CHAT_HOURS)
+            match_chat_id = match.id
+        else:
+            # One-sided: pending, chat stays closed
+            match.status = "pending"
+    elif body.action == "skip":
+        match.status = "declined"
 
     partner_id = match.user2_id if match.user1_id == user.id else match.user1_id
     partner = await db.get(User, partner_id)
@@ -400,6 +405,68 @@ async def match_action(
         "date_prep": date_prep,
         "match_chat_id": match_chat_id,
     }
+
+
+@router.post("/{match_id}/accept")
+async def accept_match(
+    match_id: int,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Accept a pending match: open chat, notify partner."""
+    match = await db.get(Match, match_id)
+    if not match:
+        raise HTTPException(404, "Match not found")
+    if user.id not in (match.user1_id, match.user2_id):
+        raise HTTPException(403, "Not your match")
+    if match.status == "accepted":
+        return {"ok": True, "match_chat_id": match.id}
+
+    if match.user1_id == user.id:
+        match.user1_action = "like"
+    else:
+        match.user2_action = "like"
+
+    now_dt = datetime.now(timezone.utc)
+    match.status = "accepted"
+    match.matched_at = now_dt
+    if match.chat_status not in ("open", "matched", "exchanged"):
+        match.chat_status = "open"
+        match.chat_opened_at = now_dt
+        match.chat_deadline = now_dt + timedelta(hours=settings.MATCH_CHAT_HOURS)
+    await db.commit()
+
+    partner_id = match.user2_id if match.user1_id == user.id else match.user1_id
+    partner = await db.get(User, partner_id)
+    if partner and partner.telegram_id:
+        asyncio.create_task(send_notification(
+            partner.telegram_id,
+            f"💬 {user.name} принял(а) матч! Теперь можно написать.",
+        ))
+
+    return {"ok": True, "match_chat_id": match.id}
+
+
+@router.post("/{match_id}/decline")
+async def decline_match(
+    match_id: int,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Decline a pending match: no chat, no notification to partner."""
+    match = await db.get(Match, match_id)
+    if not match:
+        raise HTTPException(404, "Match not found")
+    if user.id not in (match.user1_id, match.user2_id):
+        raise HTTPException(403, "Not your match")
+
+    if match.user1_id == user.id:
+        match.user1_action = "skip"
+    else:
+        match.user2_action = "skip"
+    match.status = "declined"
+    await db.commit()
+    return {"ok": True}
 
 
 @router.post("/{match_id}/restore")

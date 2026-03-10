@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
-import { getMatches, matchAction, restoreSkip, deleteMatchChat, Match } from '../api/matches'
+import { getMatches, matchAction, acceptMatch, declineMatch, restoreSkip, deleteMatchChat, Match } from '../api/matches'
 import { recordProfileView } from '../api/views'
 import Loader from '../components/Loader'
 
@@ -67,7 +67,7 @@ export default function Matches({ onBack, onOpenChat, chatsOnly = false }: Match
   }, [])
 
   const pending = chatsOnly ? [] : matches.filter(m => m.user_action === null)
-  const liked = matches.filter(m => m.user_action === 'like')
+  const liked = matches.filter(m => m.user_action === 'like' && m.match_status !== 'declined')
   const skipped = chatsOnly ? [] : matches.filter(m => m.user_action === 'skip' && m.restore_count < 2)
 
   const handleDeleteChat = async (matchId: number) => {
@@ -97,13 +97,21 @@ export default function Matches({ onBack, onOpenChat, chatsOnly = false }: Match
   const handleAction = async (matchId: number, action: 'like' | 'skip') => {
     setActing(matchId)
     try {
-      const res = await matchAction(matchId, action)
-      setMatches(prev => prev.map(m =>
-        m.match_id === matchId ? { ...m, user_action: action } : m
-      ))
-      closeProfile()
-      if (res.mutual_match && res.match_chat_id) {
-        onOpenChat(res.match_chat_id)
+      if (action === 'like') {
+        const res = await acceptMatch(matchId)
+        setMatches(prev => prev.map(m =>
+          m.match_id === matchId ? { ...m, user_action: 'like', match_status: 'accepted' } : m
+        ))
+        closeProfile()
+        if (res.match_chat_id) {
+          onOpenChat(res.match_chat_id)
+        }
+      } else {
+        await declineMatch(matchId)
+        setMatches(prev => prev.map(m =>
+          m.match_id === matchId ? { ...m, user_action: 'skip', match_status: 'declined' } : m
+        ))
+        closeProfile()
       }
     } catch {
       // ignore
@@ -253,17 +261,26 @@ export default function Matches({ onBack, onOpenChat, chatsOnly = false }: Match
                         <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--d2)', marginRight: 4 }}>
                           {Math.round(m.compatibility_score)}%
                         </div>
-                        {/* Chat button */}
-                        <button
-                          onClick={() => onOpenChat(m.match_id)}
-                          style={{
-                            padding: '8px 14px', background: m.has_unread ? 'var(--w)' : 'var(--bg)',
-                            border: m.has_unread ? 'none' : '1px solid var(--l)', borderRadius: 10,
-                            color: m.has_unread ? 'var(--bg)' : 'var(--d2)', fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: 'Inter',
-                          }}
-                        >
-                          Чат
-                        </button>
+                        {/* Chat button — only if accepted */}
+                        {(m.match_status === 'accepted' || m.match_status === 'matched') ? (
+                          <button
+                            onClick={() => onOpenChat(m.match_id)}
+                            style={{
+                              padding: '8px 14px', background: m.has_unread ? 'var(--w)' : 'var(--bg)',
+                              border: m.has_unread ? 'none' : '1px solid var(--l)', borderRadius: 10,
+                              color: m.has_unread ? 'var(--bg)' : 'var(--d2)', fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: 'Inter',
+                            }}
+                          >
+                            Чат
+                          </button>
+                        ) : (
+                          <div style={{
+                            padding: '8px 10px', fontSize: 11, color: 'var(--d4)',
+                            border: '1px solid var(--l)', borderRadius: 10, whiteSpace: 'nowrap',
+                          }}>
+                            Ожидает
+                          </div>
+                        )}
                         {/* Delete button (chats mode only) */}
                         {chatsOnly && (
                           <button
@@ -353,9 +370,11 @@ export default function Matches({ onBack, onOpenChat, chatsOnly = false }: Match
             ? () => handleRestore(viewingMatch.match_id)
             : undefined
           }
-          onOpenChat={viewingMatch.user_action === 'like'
-            ? () => { closeProfile(); onOpenChat(viewingMatch.match_id) }
-            : undefined
+          onOpenChat={
+            viewingMatch.user_action === 'like' &&
+            (viewingMatch.match_status === 'accepted' || viewingMatch.match_status === 'matched')
+              ? () => { closeProfile(); onOpenChat(viewingMatch.match_id) }
+              : undefined
           }
         />
       )}
