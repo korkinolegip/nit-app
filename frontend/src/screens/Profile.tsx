@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { getProfile, updateProfile, deleteProfile, uploadPhoto, deletePhoto, setPrimaryPhoto } from '../api/profile'
+import { getProfile, updateProfile, deleteProfile, uploadPhotos, deletePhoto, setPrimaryPhoto } from '../api/profile'
 
 interface ProfileProps {
   onBack: () => void
@@ -43,6 +43,8 @@ export default function Profile({ onBack }: ProfileProps) {
   const [deleting, setDeleting] = useState(false)
   const [deleteError, setDeleteError] = useState(false)
   const [uploadingPhoto, setUploadingPhoto] = useState(false)
+  const [pendingFiles, setPendingFiles] = useState<{ file: File; preview: string }[]>([])
+  const [uploadError, setUploadError] = useState<string | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
@@ -91,18 +93,69 @@ export default function Profile({ onBack }: ProfileProps) {
 
   const touchStartX = useRef<number>(0)
 
-  const handlePhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]
-    if (!file) return
+  const MAX_PHOTOS = 5
+  const ALLOWED_TYPES = ['image/jpeg', 'image/png', 'image/webp']
+  const MAX_FILE_SIZE = 10 * 1024 * 1024
+
+  const handleFilesSelected = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const selected = Array.from(e.target.files || [])
     e.target.value = ''
+    setUploadError(null)
+    if (!selected.length) return
+
+    const available = MAX_PHOTOS - approvedPhotos.length
+    if (available <= 0) return
+
+    const invalid = selected.find(f => !ALLOWED_TYPES.includes(f.type))
+    if (invalid) {
+      setUploadError('Допустимые форматы: JPG, PNG, WEBP')
+      return
+    }
+    const tooBig = selected.find(f => f.size > MAX_FILE_SIZE)
+    if (tooBig) {
+      setUploadError('Максимальный размер файла — 10 МБ')
+      return
+    }
+
+    let accepted = selected
+    if (accepted.length > available) {
+      accepted = accepted.slice(0, available)
+      setUploadError(`Можно добавить ещё ${available}. Лишние файлы убраны.`)
+    }
+
+    const newPending = accepted.map(file => ({ file, preview: URL.createObjectURL(file) }))
+    setPendingFiles(prev => {
+      const combined = [...prev, ...newPending]
+      if (combined.length > available) {
+        const trimmed = combined.slice(0, available)
+        setUploadError(`Выбрано максимум ${available} фото`)
+        return trimmed
+      }
+      return combined
+    })
+  }
+
+  const handleRemovePending = (index: number) => {
+    setPendingFiles(prev => {
+      URL.revokeObjectURL(prev[index].preview)
+      return prev.filter((_, i) => i !== index)
+    })
+    setUploadError(null)
+  }
+
+  const handleUpload = async () => {
+    if (!pendingFiles.length) return
     setUploadingPhoto(true)
+    setUploadError(null)
     try {
-      await uploadPhoto(file)
+      await uploadPhotos(pendingFiles.map(p => p.file))
+      pendingFiles.forEach(p => URL.revokeObjectURL(p.preview))
+      setPendingFiles([])
       const data: any = await getProfile()
       setPhotos((data.photos || []).filter((p: PhotoData) => p.url))
       setPhotoIndex(0)
-    } catch {
-      // silently fail
+    } catch (err: any) {
+      setUploadError(err?.message || 'Ошибка загрузки. Попробуй ещё раз.')
     } finally {
       setUploadingPhoto(false)
     }
@@ -177,7 +230,7 @@ export default function Profile({ onBack }: ProfileProps) {
           <>
             {/* Photos */}
             <div style={{ marginBottom: '24px' }}>
-              <input ref={fileInputRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={handlePhotoUpload} />
+              <input ref={fileInputRef} type="file" accept="image/jpeg,image/png,image/webp" multiple style={{ display: 'none' }} onChange={handleFilesSelected} />
 
               {approvedPhotos.length > 0 ? (
                 <>
@@ -244,14 +297,63 @@ export default function Profile({ onBack }: ProfileProps) {
                 </div>
               )}
 
+              {/* Pending previews */}
+              {pendingFiles.length > 0 && (
+                <div style={{ marginBottom: 12 }}>
+                  <div style={{ fontSize: 11, fontWeight: 600, letterSpacing: '.07em', color: 'var(--d3)', textTransform: 'uppercase', marginBottom: 8 }}>
+                    К загрузке — {pendingFiles.length}
+                  </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 6 }}>
+                    {pendingFiles.map((p, i) => (
+                      <div key={i} style={{ position: 'relative', aspectRatio: '1', borderRadius: 10, overflow: 'hidden', background: 'var(--bg3)' }}>
+                        <img src={p.preview} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                        <button
+                          onClick={() => handleRemovePending(i)}
+                          style={{
+                            position: 'absolute', top: 4, right: 4,
+                            width: 20, height: 20, borderRadius: '50%',
+                            background: 'rgba(0,0,0,.65)', border: 'none',
+                            color: '#fff', cursor: 'pointer', fontSize: 12,
+                            display: 'flex', alignItems: 'center', justifyContent: 'center', lineHeight: 1,
+                          }}
+                        >×</button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Error message */}
+              {uploadError && (
+                <div style={{ fontSize: 12, color: '#ff5050', marginBottom: 8, textAlign: 'center' }}>
+                  {uploadError}
+                </div>
+              )}
+
+              {/* Upload button (visible when pending files selected) */}
+              {pendingFiles.length > 0 && (
+                <button
+                  onClick={handleUpload}
+                  disabled={uploadingPhoto}
+                  style={{
+                    width: '100%', padding: '12px', marginBottom: 8,
+                    background: 'var(--w)', border: 'none', borderRadius: '12px',
+                    color: 'var(--bg)', fontFamily: 'Inter', fontSize: '14px', fontWeight: 600, cursor: 'pointer',
+                    opacity: uploadingPhoto ? 0.6 : 1,
+                  }}
+                >
+                  {uploadingPhoto ? 'Загружаю...' : `Загрузить ${pendingFiles.length} фото`}
+                </button>
+              )}
+
               {/* Add photo button */}
-              {approvedPhotos.length < 5 && (
+              {approvedPhotos.length + pendingFiles.length < 5 && (
                 <button
                   onClick={() => fileInputRef.current?.click()}
                   disabled={uploadingPhoto}
                   style={{ width: '100%', padding: '11px', background: 'none', border: '1px dashed var(--d4)', borderRadius: '12px', color: 'var(--d3)', fontFamily: 'Inter', fontSize: '13px', fontWeight: 500, cursor: 'pointer' }}
                 >
-                  {uploadingPhoto ? 'Загружаю...' : `+ Добавить фото (${approvedPhotos.length}/5)`}
+                  + Добавить фото ({approvedPhotos.length + pendingFiles.length}/5)
                 </button>
               )}
             </div>

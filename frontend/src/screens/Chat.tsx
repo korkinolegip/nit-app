@@ -6,7 +6,7 @@ import InputBar from '../components/InputBar'
 import SettingsSheet from '../components/SettingsSheet'
 import MenuSheet from '../components/MenuSheet'
 import { transcribeVoice, getChatHistory, pingActivity, getGreeting } from '../api/chat'
-import { uploadPhoto } from '../api/profile'
+import { uploadPhotos } from '../api/profile'
 import { matchAction } from '../api/matches'
 
 interface CardItem {
@@ -198,7 +198,7 @@ export default function Chat({ onOpenMatch, onNavigateTo, isReturning = false, s
     addMessage({ sender: 'me', text: `📷 ${file.name}`, type: 'text' })
 
     try {
-      await uploadPhoto(file)
+      await uploadPhotos([file])
       addMessage({
         sender: 'ai',
         text: 'Фото добавлено! Можешь загрузить ещё или продолжить.',

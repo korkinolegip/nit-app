@@ -11,9 +11,9 @@ export async function updateProfile(data: { name?: string; age?: number; city?: 
   })
 }
 
-export async function uploadPhoto(file: File) {
+export async function uploadPhotos(files: File[]) {
   const formData = new FormData()
-  formData.append('file', file)
+  files.forEach(f => formData.append('files', f))
   return apiRequest('/api/profile/photos', {
     method: 'POST',
     body: formData,

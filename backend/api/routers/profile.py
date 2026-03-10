@@ -215,9 +215,13 @@ async def _trigger_profile_ai_dialog(user_id: int, changed_labels: list[str]) ->
         logger.warning(f"Profile dialog injection failed for user {user_id}: {e}")
 
 
+_ALLOWED_PHOTO_TYPES = {"image/jpeg", "image/png", "image/webp"}
+_MAX_PHOTO_SIZE = 10 * 1024 * 1024  # 10 MB
+
+
 @router.post("/photos")
-async def upload_photo(
-    file: UploadFile = File(...),
+async def upload_photos(
+    files: list[UploadFile] = File(...),
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -227,41 +231,68 @@ async def upload_photo(
     except Exception as e:
         logger.warning(f"Rate limit check skipped (Redis unavailable): {e}")
 
-    photos = await get_user_photos(db, user.id)
-    if len(photos) >= settings.MAX_PHOTOS_PER_USER:
-        raise HTTPException(400, f"Maximum {settings.MAX_PHOTOS_PER_USER} photos allowed")
+    if len(files) > settings.MAX_PHOTOS_PER_USER:
+        raise HTTPException(400, f"Можно загрузить не более {settings.MAX_PHOTOS_PER_USER} фото за раз")
 
-    content = await file.read()
-    ext = file.filename.rsplit(".", 1)[-1] if file.filename and "." in file.filename else "jpg"
-    storage_key = f"photos/{user.id}/{uuid.uuid4()}.{ext}"
+    existing = await get_user_photos(db, user.id)
+    slots_left = settings.MAX_PHOTOS_PER_USER - len(existing)
+    if slots_left <= 0:
+        raise HTTPException(400, "Достигнут лимит фотографий. Удалите старые чтобы добавить новые.")
+    if len(files) > slots_left:
+        raise HTTPException(
+            400,
+            f"Можно добавить ещё {slots_left} фото. У вас уже {len(existing)} из {settings.MAX_PHOTOS_PER_USER}.",
+        )
 
-    try:
-        await upload_file(storage_key, content, file.content_type or "image/jpeg")
-    except Exception as e:
-        logger.warning(f"S3 upload failed (continuing without storage): {e}")
+    # Read and validate all files upfront
+    file_data: list[tuple[bytes, str, str]] = []
+    for f in files:
+        if f.content_type not in _ALLOWED_PHOTO_TYPES:
+            raise HTTPException(400, f"Недопустимый формат: {f.content_type}. Разрешены JPG, PNG, WEBP.")
+        content = await f.read()
+        if len(content) > _MAX_PHOTO_SIZE:
+            raise HTTPException(400, f"Файл слишком большой. Максимум 10 МБ.")
+        ext = f.filename.rsplit(".", 1)[-1] if f.filename and "." in f.filename else "jpg"
+        storage_key = f"photos/{user.id}/{uuid.uuid4()}.{ext}"
+        file_data.append((content, f.content_type or "image/jpeg", storage_key))
 
-    is_primary = len(photos) == 0
-    photo = Photo(
-        user_id=user.id,
-        storage_key=storage_key,
-        is_primary=is_primary,
-        sort_order=len(photos),
-        moderation_status="approved",
-    )
-    db.add(photo)
+    # Upload to storage in parallel
+    async def _upload_one(content: bytes, content_type: str, storage_key: str) -> None:
+        try:
+            await upload_file(storage_key, content, content_type)
+        except Exception as e:
+            logger.warning(f"S3 upload failed (continuing without storage): {e}")
 
-    if is_primary:
+    await asyncio.gather(*[_upload_one(c, ct, sk) for c, ct, sk in file_data])
+
+    # Persist Photo records
+    is_first_ever = len(existing) == 0
+    new_photos: list[Photo] = []
+    for i, (_, _, storage_key) in enumerate(file_data):
+        is_primary = is_first_ever and i == 0
+        photo = Photo(
+            user_id=user.id,
+            storage_key=storage_key,
+            is_primary=is_primary,
+            sort_order=len(existing) + i,
+            moderation_status="approved",
+        )
+        db.add(photo)
+        new_photos.append(photo)
+
+    if is_first_ever:
         user.is_active = True
         if user.onboarding_step == "photos":
             user.onboarding_step = "complete"
 
     await db.commit()
-    await db.refresh(photo)
+    for p in new_photos:
+        await db.refresh(p)
 
-    if is_primary:
+    if is_first_ever:
         asyncio.create_task(_run_matching_background(user.id))
 
-    return {"photo_id": photo.id, "moderation_status": photo.moderation_status}
+    return {"photo_ids": [p.id for p in new_photos], "count": len(new_photos)}
 
 
 async def _run_matching_background(user_id: int):
