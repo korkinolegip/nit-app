@@ -35,6 +35,7 @@ class User(Base):
     gender: Mapped[str | None] = mapped_column(String(20))
     partner_preference: Mapped[str | None] = mapped_column(String(20))
     goal: Mapped[str | None] = mapped_column(String(30))
+    occupation: Mapped[str | None] = mapped_column(String(100))
 
     raw_intro_text: Mapped[str | None] = mapped_column(Text)
     intro_summary: Mapped[str | None] = mapped_column(Text)

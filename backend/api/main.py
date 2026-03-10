@@ -6,10 +6,18 @@ from fastapi.middleware.cors import CORSMiddleware
 from api.routers import admin, auth, chat, feedback, match_chat, matches, profile, voice
 from core.config import settings
 from core.redis import close_redis
+from db.connection import engine
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # Safe schema migrations (idempotent)
+    async with engine.begin() as conn:
+        await conn.execute(
+            __import__("sqlalchemy").text(
+                "ALTER TABLE users ADD COLUMN IF NOT EXISTS occupation VARCHAR(100)"
+            )
+        )
     yield
     await close_redis()
 
