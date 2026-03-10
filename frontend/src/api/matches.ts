@@ -56,6 +56,32 @@ export async function getMatches(offset = 0): Promise<MatchesResponse> {
   return apiRequest(`/api/matches?limit=10&offset=${offset}`)
 }
 
+export interface PeopleFilters {
+  gender: 'all' | 'male' | 'female'
+  age_min: number
+  age_max: number
+  city: string
+}
+
+export const DEFAULT_PEOPLE_FILTERS: PeopleFilters = {
+  gender: 'all',
+  age_min: 18,
+  age_max: 80,
+  city: '',
+}
+
+export async function getPeople(filters: PeopleFilters, offset = 0): Promise<{ matches: Match[]; total: number }> {
+  const params = new URLSearchParams({
+    limit: '10',
+    offset: String(offset),
+    age_min: String(filters.age_min),
+    age_max: String(filters.age_max),
+  })
+  if (filters.gender !== 'all') params.set('gender', filters.gender)
+  if (filters.city.trim()) params.set('city', filters.city.trim())
+  return apiRequest(`/api/users/people?${params}`)
+}
+
 export async function matchAction(matchId: number, action: 'like' | 'skip') {
   return apiRequest(`/api/matches/${matchId}/action`, {
     method: 'POST',

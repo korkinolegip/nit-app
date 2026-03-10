@@ -316,6 +316,42 @@ async def list_users(
     ]}
 
 
+@router.post("/wipe-all-users")
+async def wipe_all_users(
+    secret: str = Query(...),
+    db: AsyncSession = Depends(get_db),
+):
+    """⚠️ Delete ALL users, matches, photos and all related data. Test-only."""
+    if secret != settings.WEBHOOK_SECRET:
+        raise HTTPException(403, "Invalid secret")
+
+    from sqlalchemy import text
+
+    # Delete S3 files first
+    photos_result = await db.execute(select(Photo))
+    for photo in photos_result.scalars():
+        try:
+            await delete_file(photo.storage_key)
+        except Exception:
+            pass
+
+    for table in [
+        "chat_reports", "chat_analysis", "contact_exchange",
+        "match_messages", "matches",
+        "consent_log", "date_feedback", "reports", "block_list",
+        "aggregated_impressions", "daily_match_quota",
+        "profile_views", "photos", "user_embeddings",
+        "interview_sessions", "answers",
+        "moderation_log", "users",
+    ]:
+        try:
+            await db.execute(text(f"DELETE FROM {table}"))
+        except Exception:
+            pass
+    await db.commit()
+    return {"ok": True, "message": "All users and related data deleted"}
+
+
 @router.patch("/users/{user_id}")
 async def patch_user(
     user_id: int,
