@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { getMatches, matchAction, restoreSkip, Match } from '../api/matches'
 import { recordProfileView } from '../api/views'
 import Loader from '../components/Loader'
@@ -96,16 +96,27 @@ export default function Matches({ onBack, onOpenChat, chatsOnly = false }: Match
     setViewingMatch(m)
   }
 
-  const closeProfile = () => {
-    if (viewingMatch && profileOpenTimeRef.current > 0) {
-      const durationSecs = Math.round((Date.now() - profileOpenTimeRef.current) / 1000)
-      if (durationSecs >= 1) {
-        recordProfileView(viewingMatch.partner_user_id, durationSecs).catch(() => {})
+  const closeProfile = useCallback(() => {
+    setViewingMatch(prev => {
+      if (prev && profileOpenTimeRef.current > 0) {
+        const durationSecs = Math.round((Date.now() - profileOpenTimeRef.current) / 1000)
+        if (durationSecs >= 1) {
+          recordProfileView(prev.partner_user_id, durationSecs).catch(() => {})
+        }
+        profileOpenTimeRef.current = 0
       }
-      profileOpenTimeRef.current = 0
+      return null
+    })
+  }, [])
+
+  // Save duration when user minimizes/switches away from app
+  useEffect(() => {
+    const onHide = () => {
+      if (document.visibilityState === 'hidden') closeProfile()
     }
-    setViewingMatch(null)
-  }
+    document.addEventListener('visibilitychange', onHide)
+    return () => document.removeEventListener('visibilitychange', onHide)
+  }, [closeProfile])
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100dvh', background: 'var(--bg)' }}>

@@ -1,3 +1,4 @@
+import asyncio
 import logging
 from datetime import datetime, timezone
 
@@ -8,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.middleware.auth import get_current_user
 from core.storage import get_photo_signed_url
+from core.telegram import send_notification
 from db.connection import get_db
 from modules.users.models import Photo, ProfileView, User
 
@@ -84,6 +86,18 @@ async def record_view(
     )
     db.add(view)
     await db.commit()
+
+    # Push notification to viewed user (non-blocking)
+    try:
+        viewed_user = await db.get(User, viewed_user_id)
+        if viewed_user and viewed_user.telegram_id:
+            asyncio.create_task(send_notification(
+                viewed_user.telegram_id,
+                f"👁 {user.name} просмотрел(а) твой профиль — загляни в приложение.",
+            ))
+    except Exception:
+        pass
+
     return {"ok": True}
 
 

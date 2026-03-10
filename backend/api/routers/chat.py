@@ -157,15 +157,22 @@ async def get_activity_summary(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Return counts of new events since user was last away (> 5 min)."""
+    """Return counts of new events since user was last away (>= 15 min)."""
     now = datetime.now(timezone.utc)
 
-    # Reference point: last time user was "away" (more than 5 min ago)
-    # If last_seen is recent (within 10 min), use 10 min ago as cutoff
-    if user.last_seen and (now - user.last_seen).total_seconds() < 600:
-        since = now - timedelta(minutes=10)
-    else:
-        since = (user.last_seen or (now - timedelta(hours=24)))
+    # Only report activity if user was away for at least 15 minutes
+    # If last_seen is recent (< 15 min ago), nothing to report
+    if user.last_seen and (now - user.last_seen).total_seconds() < 900:
+        return {
+            "new_matches": 0,
+            "new_messages": 0,
+            "new_views": 0,
+            "open_chats": 0,
+            "has_activity": False,
+        }
+
+    # Cutoff = when user was last seen (or 24h ago if never seen)
+    since = user.last_seen or (now - timedelta(hours=24))
 
     # New pending matches created since cutoff
     matches_result = await db.execute(
