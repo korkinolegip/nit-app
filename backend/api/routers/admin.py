@@ -240,7 +240,9 @@ async def check_schema(secret: str = Query(...), db: AsyncSession = Depends(get_
     test_count = result2.scalar()
     result3 = await db.execute(text("SELECT id, name, gender, city, is_active, onboarding_step FROM users WHERE telegram_id < 9000000000 ORDER BY id"))
     real_users = [{"id": r[0], "name": r[1], "gender": r[2], "city": r[3], "is_active": r[4], "onboarding_step": r[5]} for r in result3.fetchall()]
-    return {"occupation_column_exists": has_col, "test_users_count": test_count, "real_users": real_users}
+    result4 = await db.execute(text("SELECT m.id, m.user1_id, m.user2_id, m.compatibility_score, m.status, m.user1_action, m.user2_action FROM matches m WHERE m.user1_id = 16 OR m.user2_id = 16 LIMIT 10"))
+    matches_debug = [{"id": r[0], "u1": r[1], "u2": r[2], "score": r[3], "status": r[4], "u1_action": r[5], "u2_action": r[6]} for r in result4.fetchall()]
+    return {"occupation_column_exists": has_col, "test_users_count": test_count, "real_users": real_users, "matches_user16": matches_debug}
 
 
 @router.post("/run-matching/{user_id}")
