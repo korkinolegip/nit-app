@@ -166,83 +166,74 @@ async def seed_test_users(
     if secret != settings.WEBHOOK_SECRET:
         raise HTTPException(403, "Invalid secret")
 
-    import traceback
     created = []
     errors = []
-    try:
-        for i, u in enumerate(TEST_USERS):
-            fake_tg_id = 9_000_000_000 + i + 1
-            try:
-                existing = await db.execute(select(User).where(User.telegram_id == fake_tg_id))
-                if existing.scalar_one_or_none():
-                    continue
+    for i, u in enumerate(TEST_USERS):
+        fake_tg_id = 9_000_000_000 + i + 1
+        try:
+            existing = await db.execute(select(User).where(User.telegram_id == fake_tg_id))
+            if existing.scalar_one_or_none():
+                continue
 
-                async with db.begin_nested():
-                    user = User(
-                        telegram_id=fake_tg_id,
-                        name=u["name"],
-                        age=u["age"],
-                        city=u["city"],
-                        gender=u["gender"],
-                        goal=u["goal"],
-                        partner_preference=u["partner_preference"],
-                        occupation=u["occupation"],
-                        onboarding_step="complete",
-                        is_active=True,
-                        is_paused=False,
-                    )
-                    db.add(user)
-                    await db.flush()
+            async with db.begin_nested():
+                user = User(
+                    telegram_id=fake_tg_id,
+                    name=u["name"],
+                    age=u["age"],
+                    city=u["city"],
+                    gender=u["gender"],
+                    goal=u["goal"],
+                    partner_preference=u["partner_preference"],
+                    occupation=u["occupation"],
+                    onboarding_step="complete",
+                    is_active=True,
+                    is_paused=False,
+                )
+                db.add(user)
+                await db.flush()
 
-                    photo = Photo(
-                        user_id=user.id,
-                        storage_key=f"test/placeholder_{i}_{u['gender']}.jpg",
-                        is_primary=True,
-                        sort_order=0,
-                        moderation_status="approved",
-                    )
-                    db.add(photo)
+                photo = Photo(
+                    user_id=user.id,
+                    storage_key=f"test/placeholder_{i}_{u['gender']}.jpg",
+                    is_primary=True,
+                    sort_order=0,
+                    moderation_status="approved",
+                )
+                db.add(photo)
 
-                    interview = InterviewSession(
-                        user_id=user.id,
-                        messages=[],
-                        collected_data={"name": u["name"], "city": u["city"], "goal": u["goal"]},
-                        missing_fields=[],
-                        turn_count=3,
-                        is_complete=True,
-                    )
-                    db.add(interview)
+                interview = InterviewSession(
+                    user_id=user.id,
+                    messages=[],
+                    collected_data={"name": u["name"], "city": u["city"], "goal": u["goal"]},
+                    missing_fields=[],
+                    turn_count=3,
+                    is_complete=True,
+                )
+                db.add(interview)
 
-                created.append(u["name"])
-            except Exception as e:
-                errors.append(f"{u['name']}: {str(e)[:200]}")
+            created.append(u["name"])
+        except Exception as e:
+            errors.append(f"{u['name']}: {str(e)[:200]}")
 
-        if created:
-            await db.commit()
-    except Exception as fatal:
-        return {"fatal_error": str(fatal), "traceback": traceback.format_exc()[-1000:], "created": created, "errors": errors}
-
+    if created:
+        await db.commit()
     return {"created": created, "total": len(created), "errors": errors}
 
 
-@router.get("/check-schema")
-async def check_schema(secret: str = Query(...), db: AsyncSession = Depends(get_db)):
-    """Check if DB schema has occupation column."""
+@router.get("/db-stats")
+async def db_stats(secret: str = Query(...), db: AsyncSession = Depends(get_db)):
+    """Quick DB stats for debugging."""
     if secret != settings.WEBHOOK_SECRET:
         raise HTTPException(403, "Admin access required")
     from sqlalchemy import text
-    result = await db.execute(text(
-        "SELECT column_name FROM information_schema.columns "
-        "WHERE table_name='users' AND column_name='occupation'"
-    ))
-    has_col = result.fetchone() is not None
-    result2 = await db.execute(text("SELECT COUNT(*) FROM users WHERE telegram_id >= 9000000000"))
-    test_count = result2.scalar()
-    result3 = await db.execute(text("SELECT id, name, gender, city, is_active, onboarding_step FROM users WHERE telegram_id < 9000000000 ORDER BY id"))
-    real_users = [{"id": r[0], "name": r[1], "gender": r[2], "city": r[3], "is_active": r[4], "onboarding_step": r[5]} for r in result3.fetchall()]
-    result4 = await db.execute(text("SELECT m.id, m.user1_id, m.user2_id, m.compatibility_score, m.status, m.user1_action, m.user2_action FROM matches m WHERE m.user1_id = 16 OR m.user2_id = 16 LIMIT 10"))
-    matches_debug = [{"id": r[0], "u1": r[1], "u2": r[2], "score": r[3], "status": r[4], "u1_action": r[5], "u2_action": r[6]} for r in result4.fetchall()]
-    return {"occupation_column_exists": has_col, "test_users_count": test_count, "real_users": real_users, "matches_user16": matches_debug}
+    result1 = await db.execute(text("SELECT COUNT(*) FROM users WHERE telegram_id >= 9000000000"))
+    result2 = await db.execute(text("SELECT COUNT(*) FROM users WHERE telegram_id < 9000000000"))
+    result3 = await db.execute(text("SELECT COUNT(*) FROM matches"))
+    return {
+        "test_users": result1.scalar(),
+        "real_users": result2.scalar(),
+        "total_matches": result3.scalar(),
+    }
 
 
 @router.post("/run-matching/{user_id}")
