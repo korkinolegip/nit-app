@@ -49,7 +49,8 @@ async def lifespan(app: FastAPI):
                 ])
                 logger.info(f"Telegram webhook set: {webhook_url}")
         except Exception as e:
-            logger.error(f"Bot setup failed: {e}")
+            import traceback
+            logger.error(f"Bot setup failed: {e}\n{traceback.format_exc()}")
 
     yield
 

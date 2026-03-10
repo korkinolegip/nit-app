@@ -220,6 +220,27 @@ async def seed_test_users(
     return {"created": created, "total": len(created), "errors": errors}
 
 
+@router.post("/reset-webhook")
+async def reset_webhook(secret: str = Query(...)):
+    """Re-register Telegram webhook. Call after redeploys if bot stops responding."""
+    if secret != settings.WEBHOOK_SECRET:
+        raise HTTPException(403, "Invalid secret")
+    if not settings.BOT_TOKEN or not settings.WEBHOOK_URL:
+        raise HTTPException(503, "BOT_TOKEN or WEBHOOK_URL not configured")
+
+    import httpx
+    webhook_url = f"{settings.WEBHOOK_URL}/bot/webhook/{settings.WEBHOOK_SECRET}"
+    async with httpx.AsyncClient(timeout=10) as client:
+        r = await client.post(
+            f"https://api.telegram.org/bot{settings.BOT_TOKEN}/setWebhook",
+            json={"url": webhook_url, "drop_pending_updates": False},
+        )
+    data = r.json()
+    if not data.get("ok"):
+        raise HTTPException(500, f"Telegram error: {data.get('description')}")
+    return {"ok": True, "webhook_url": webhook_url}
+
+
 @router.get("/db-stats")
 async def db_stats(secret: str = Query(...), db: AsyncSession = Depends(get_db)):
     """Quick DB stats for debugging."""
