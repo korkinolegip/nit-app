@@ -238,7 +238,9 @@ async def check_schema(secret: str = Query(...), db: AsyncSession = Depends(get_
     has_col = result.fetchone() is not None
     result2 = await db.execute(text("SELECT COUNT(*) FROM users WHERE telegram_id >= 9000000000"))
     test_count = result2.scalar()
-    return {"occupation_column_exists": has_col, "test_users_count": test_count}
+    result3 = await db.execute(text("SELECT id, name, gender, city, is_active, onboarding_step FROM users WHERE telegram_id < 9000000000 ORDER BY id"))
+    real_users = [{"id": r[0], "name": r[1], "gender": r[2], "city": r[3], "is_active": r[4], "onboarding_step": r[5]} for r in result3.fetchall()]
+    return {"occupation_column_exists": has_col, "test_users_count": test_count, "real_users": real_users}
 
 
 @router.post("/run-matching/{user_id}")
