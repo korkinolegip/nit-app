@@ -43,7 +43,7 @@ export default function MatchChat({ matchId, onBack }: MatchChatProps) {
 
   useEffect(() => {
     loadMessages()
-    const interval = setInterval(loadMessages, 5000)
+    const interval = setInterval(loadMessages, 15000)
     return () => clearInterval(interval)
   }, [loadMessages])
 

@@ -97,20 +97,24 @@ async def record_view(
             return {"ok": True}
         # Fall through: create a new record if no open record found
 
-    # Check 24h cooldown before sending push (initial open only)
+    # Check cooldown before sending push (initial open only): 1 push per 24h per pair
     should_push = False
     if body.duration_seconds is None:
-        cutoff = datetime.now(timezone.utc) - timedelta(hours=24)
-        recent = await db.execute(
+        last_view = await db.execute(
             select(ProfileView)
             .where(
                 ProfileView.viewer_id == user.id,
                 ProfileView.viewed_id == viewed_user_id,
-                ProfileView.seen_at >= cutoff,
             )
+            .order_by(ProfileView.seen_at.desc())
             .limit(1)
         )
-        should_push = recent.scalar_one_or_none() is None
+        last_row = last_view.scalar_one_or_none()
+        if last_row is None:
+            should_push = True
+        else:
+            age = (datetime.now(timezone.utc) - last_row.seen_at).total_seconds()
+            should_push = age >= 86400  # 24 hours
 
     view = ProfileView(
         viewer_id=user.id,
