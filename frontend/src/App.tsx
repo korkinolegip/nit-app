@@ -14,14 +14,22 @@ export default function App() {
   const [matchId, setMatchId] = useState<number | null>(null)
   const [isReturning, setIsReturning] = useState(false)
   const [sessionComplete, setSessionComplete] = useState(false)
+  const [hasPhotos, setHasPhotos] = useState(false)
 
   useEffect(() => {
+    const tg = (window as any).Telegram?.WebApp
+    if (tg) {
+      tg.expand()
+      tg.ready()
+    }
+
     initAuth()
       .then(() => getChatStatus())
       .then((status) => {
         if (status.has_session) {
           setIsReturning(true)
-          setSessionComplete(status.is_complete)
+          setSessionComplete(status.profile_ready)
+          setHasPhotos(status.has_photos ?? false)
           setScreen('chat')
         } else {
           setScreen('welcome')
@@ -67,12 +75,12 @@ export default function App() {
   }
 
   if (screen === 'matches') {
-    // TODO: Matches screen — for now go back to chat
     return <Chat
       onOpenMatch={openMatchChat}
       onNavigateTo={setScreen}
       isReturning={isReturning}
       sessionComplete={sessionComplete}
+      hasPhotos={hasPhotos}
     />
   }
 
@@ -81,5 +89,6 @@ export default function App() {
     onNavigateTo={setScreen}
     isReturning={isReturning}
     sessionComplete={sessionComplete}
+    hasPhotos={hasPhotos}
   />
 }

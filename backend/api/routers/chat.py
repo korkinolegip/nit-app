@@ -13,6 +13,7 @@ from modules.users.models import Answer, User
 from modules.users.repository import (
     create_interview_session,
     get_interview_session,
+    get_user_photos,
 )
 
 logger = logging.getLogger(__name__)
@@ -43,6 +44,7 @@ class ChatStatusResponse(BaseModel):
     is_complete: bool
     profile_ready: bool  # True only if session complete AND user has real data
     onboarding_step: str
+    has_photos: bool
 
 
 @router.get("/status", response_model=ChatStatusResponse)
@@ -53,11 +55,13 @@ async def get_chat_status(
     session = await get_interview_session(db, user.id)
     is_complete = session.is_complete if session else False
     profile_ready = is_complete and bool(user.name)
+    photos = await get_user_photos(db, user.id)
     return ChatStatusResponse(
         has_session=session is not None,
         is_complete=is_complete,
         profile_ready=profile_ready,
         onboarding_step=user.onboarding_step or "start",
+        has_photos=len(photos) > 0,
     )
 
 
@@ -101,7 +105,8 @@ async def send_message(
                 questionnaire_complete=True,
             )
 
-        reply = await process_post_onboarding_turn(text, user)
+        photos = await get_user_photos(db, user.id)
+        reply = await process_post_onboarding_turn(text, user, has_photos=len(photos) > 0)
         return ChatMessageResponse(reply=reply, reply_type="text")
 
     # Normal interview flow

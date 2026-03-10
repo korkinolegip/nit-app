@@ -13,7 +13,9 @@ export interface ChatResponse {
 export interface ChatStatus {
   has_session: boolean
   is_complete: boolean
+  profile_ready: boolean
   onboarding_step: string
+  has_photos: boolean
 }
 
 export async function sendMessage(text: string, type = 'text'): Promise<ChatResponse> {

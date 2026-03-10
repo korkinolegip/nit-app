@@ -12,25 +12,42 @@ interface ChatProps {
   onNavigateTo: (screen: 'discovery' | 'matches' | 'profile') => void
   isReturning?: boolean
   sessionComplete?: boolean
+  hasPhotos?: boolean
 }
 
-export default function Chat({ onOpenMatch, onNavigateTo, isReturning = false, sessionComplete = false }: ChatProps) {
+export default function Chat({ onOpenMatch, onNavigateTo, isReturning = false, sessionComplete = false, hasPhotos = false }: ChatProps) {
   const { messages, isTyping, quickReplies, send, addMessage, scrollRef, setQuickReplies } = useChat()
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [isMenuOpen, setIsMenuOpen] = useState(false)
 
-  // Initial greeting — only for new users
+  // Initial greeting
   useEffect(() => {
     if (isReturning) {
       if (sessionComplete) {
-        const t = setTimeout(() => {
-          addMessage({
-            sender: 'ai',
-            text: 'С возвращением! Твой профиль готов. Можешь добавить фото или задать вопрос.',
-            type: 'text',
-          })
-        }, 300)
-        return () => clearTimeout(t)
+        if (hasPhotos) {
+          // Profile complete + photos uploaded
+          const t = setTimeout(() => {
+            addMessage({
+              sender: 'ai',
+              text: 'С возвращением! Профиль готов, алгоритм ищет совместимых людей.',
+              type: 'text',
+            })
+          }, 300)
+          return () => clearTimeout(t)
+        } else {
+          // Profile complete but no photos yet
+          const t1 = setTimeout(() => {
+            addMessage({
+              sender: 'ai',
+              text: 'С возвращением! Профиль создан. Добавь фото — с ними алгоритм работает лучше.',
+              type: 'text',
+            })
+          }, 300)
+          const t2 = setTimeout(() => {
+            addMessage({ sender: 'ai', text: 'Загрузи фото чтобы начать находить людей:', type: 'photo_prompt' })
+          }, 900)
+          return () => { clearTimeout(t1); clearTimeout(t2) }
+        }
       } else {
         const t = setTimeout(() => {
           addMessage({
@@ -86,10 +103,11 @@ export default function Chat({ onOpenMatch, onNavigateTo, isReturning = false, s
     try {
       const result = await transcribeVoice(blob)
       await send(result.text)
-    } catch {
+    } catch (err) {
+      const detail = err instanceof Error ? err.message : String(err)
       addMessage({
         sender: 'ai',
-        text: 'Не удалось распознать голос. Попробуй ещё раз или напиши текстом.',
+        text: `Голос: ${detail}`,
         type: 'text',
       })
     }
@@ -123,7 +141,9 @@ export default function Chat({ onOpenMatch, onNavigateTo, isReturning = false, s
       {/* Topbar */}
       <div style={{
         display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-        padding: '12px 16px 10px', borderBottom: '1px solid var(--l)',
+        padding: '12px 16px 10px',
+        paddingTop: 'max(12px, env(safe-area-inset-top, 0px))',
+        borderBottom: '1px solid var(--l)',
         background: 'var(--bg)', flexShrink: 0,
       }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>

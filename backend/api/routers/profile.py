@@ -130,6 +130,8 @@ async def upload_photo(
         sort_order=len(photos),
     )
     db.add(photo)
+    if is_primary and user.onboarding_step == "photos":
+        user.onboarding_step = "complete"
     await db.commit()
     await db.refresh(photo)
 

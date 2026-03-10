@@ -148,10 +148,18 @@ async def process_interview_turn(
     return result
 
 
-async def process_post_onboarding_turn(user_message: str, user: User) -> str:
+async def process_post_onboarding_turn(user_message: str, user: User, has_photos: bool = False) -> str:
     client = get_openai_client()
 
-    user_context = f"Имя пользователя: {user.name or 'неизвестно'}. Город: {user.city or 'не указан'}."
+    if has_photos or user.onboarding_step == "complete":
+        photo_status = "Фото уже добавлены. Профиль полностью готов, алгоритм ищет совместимых людей."
+    else:
+        photo_status = "Фото ещё не добавлены — следующий шаг: добавить фото (кнопка «Добавить фото» в чате)."
+
+    user_context = (
+        f"Имя пользователя: {user.name or 'неизвестно'}. Город: {user.city or 'не указан'}. "
+        f"{photo_status}"
+    )
 
     async def _call():
         return await client.chat.completions.create(
@@ -166,6 +174,6 @@ async def process_post_onboarding_turn(user_message: str, user: User) -> str:
 
     response = await openai_call_with_retry(_call)
     if response is None:
-        return "Следующий шаг — добавить фото. Нажми кнопку «Добавить фото» ниже."
+        return "Профиль создан, алгоритм ищет совместимых людей." if has_photos else "Следующий шаг — добавить фото. Нажми кнопку «Добавить фото» ниже."
 
-    return response.choices[0].message.content or "Следующий шаг — добавить фото к профилю."
+    return response.choices[0].message.content or ""

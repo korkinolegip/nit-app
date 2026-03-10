@@ -20,3 +20,7 @@ export async function uploadPhoto(file: File) {
     headers: {},
   })
 }
+
+export async function deleteProfile() {
+  return apiRequest('/api/profile', { method: 'DELETE' })
+}

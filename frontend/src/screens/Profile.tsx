@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { getProfile, updateProfile } from '../api/profile'
+import { getProfile, updateProfile, deleteProfile } from '../api/profile'
 
 interface ProfileProps {
   onBack: () => void
@@ -28,6 +28,8 @@ export default function Profile({ onBack }: ProfileProps) {
   const [loading, setLoading] = useState(true)
   const [editing, setEditing] = useState<string | null>(null)
   const [editValue, setEditValue] = useState('')
+  const [confirmDelete, setConfirmDelete] = useState(false)
+  const [deleting, setDeleting] = useState(false)
 
   useEffect(() => {
     getProfile()
@@ -53,6 +55,22 @@ export default function Profile({ onBack }: ProfileProps) {
     }
   }
 
+  const handleDelete = async () => {
+    if (!confirmDelete) {
+      setConfirmDelete(true)
+      return
+    }
+    setDeleting(true)
+    try {
+      await deleteProfile()
+      // Reload app — clears token, user starts fresh
+      window.location.reload()
+    } catch {
+      setDeleting(false)
+      setConfirmDelete(false)
+    }
+  }
+
   const fields: { key: keyof ProfileData; label: string; format?: (v: unknown) => string }[] = [
     { key: 'name', label: 'Имя' },
     { key: 'age', label: 'Возраст', format: (v) => v ? `${v} лет` : '' },
@@ -66,7 +84,9 @@ export default function Profile({ onBack }: ProfileProps) {
       {/* Header */}
       <div style={{
         display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-        padding: '12px 16px 10px', borderBottom: '1px solid var(--l)',
+        padding: '12px 16px 10px',
+        paddingTop: 'max(12px, env(safe-area-inset-top, 0px))',
+        borderBottom: '1px solid var(--l)',
         background: 'var(--bg)', flexShrink: 0,
       }}>
         <button
@@ -189,6 +209,26 @@ export default function Profile({ onBack }: ProfileProps) {
             }}>
               Можешь изменить профиль здесь вручную или просто написать Нити в чат
             </div>
+
+            {/* Delete profile */}
+            <button
+              onClick={handleDelete}
+              disabled={deleting}
+              style={{
+                marginTop: '32px', width: '100%', padding: '14px',
+                background: 'none', border: '1px solid rgba(255,80,80,.3)',
+                borderRadius: '13px', fontFamily: 'Inter', fontSize: '14px',
+                fontWeight: 500, cursor: 'pointer',
+                color: confirmDelete ? '#ff5050' : 'rgba(255,80,80,.6)',
+              }}
+            >
+              {deleting ? 'Удаляем...' : confirmDelete ? 'Подтвердить удаление профиля' : 'Удалить профиль'}
+            </button>
+            {confirmDelete && !deleting && (
+              <p style={{ textAlign: 'center', fontSize: '12px', color: 'var(--d3)', marginTop: '8px' }}>
+                Все данные и фото будут удалены. Нажми ещё раз для подтверждения.
+              </p>
+            )}
           </>
         )}
       </div>
