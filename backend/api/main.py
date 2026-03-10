@@ -26,6 +26,8 @@ async def lifespan(app: FastAPI):
         await conn.execute(_sa.text("ALTER TABLE users ADD COLUMN IF NOT EXISTS last_seen TIMESTAMPTZ"))
         await conn.execute(_sa.text("ALTER TABLE users ADD COLUMN IF NOT EXISTS views_seen_at TIMESTAMPTZ"))
         await conn.execute(_sa.text("ALTER TABLE users ADD COLUMN IF NOT EXISTS last_profile_dialog_at TIMESTAMPTZ"))
+        await conn.execute(_sa.text("ALTER TABLE users ADD COLUMN IF NOT EXISTS last_chat_opened_at TIMESTAMPTZ"))
+        await conn.execute(_sa.text("ALTER TABLE users ADD COLUMN IF NOT EXISTS last_photo_nudge_at TIMESTAMPTZ"))
         await conn.execute(_sa.text("ALTER TABLE matches ADD COLUMN IF NOT EXISTS user1_archived BOOLEAN NOT NULL DEFAULT FALSE"))
         await conn.execute(_sa.text("ALTER TABLE matches ADD COLUMN IF NOT EXISTS user2_archived BOOLEAN NOT NULL DEFAULT FALSE"))
         await conn.execute(_sa.text("ALTER TABLE matches ADD COLUMN IF NOT EXISTS user1_last_read_at TIMESTAMPTZ"))

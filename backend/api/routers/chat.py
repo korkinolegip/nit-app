@@ -93,6 +93,23 @@ def _detect_action(text: str) -> str | None:
             return "find_people"
     return None
 
+_HELP_KW = ["что можешь", "что тут есть", "с чего начать", "помоги", "что делать",
+            "что умеешь", "покажи возможности", "как пользоваться", "куда идти",
+            "что предлагаешь", "что можно сделать", "возможности"]
+
+_MENU_BUTTONS = [
+    {"icon": "👥", "label": "Смотреть людей", "screen": "matches"},
+    {"icon": "✏️", "label": "Обновить профиль", "screen": "profile"},
+    {"icon": "👁", "label": "Кто смотрел", "screen": "views"},
+    {"icon": "💬", "label": "Мои чаты", "screen": "chats"},
+]
+
+
+def _detect_help_request(text: str) -> bool:
+    t = text.lower()
+    return any(kw in t for kw in _HELP_KW)
+
+
 _CONFIRM_PHRASES = {"всё верно", "все верно", "всё верно ✓"}
 
 
@@ -111,6 +128,7 @@ class ChatMessageResponse(BaseModel):
     collected_data: dict | None = None
     quick_replies: list[str] | None = None
     card_data: dict | None = None
+    menu_buttons: list[dict] | None = None
 
 
 class ChatStatusResponse(BaseModel):
@@ -266,13 +284,13 @@ async def get_greeting(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Generate an AI greeting when the user returns to the app (>15 min away)."""
+    """Generate an AI greeting when the user opens the chat (>15 min since last chat open)."""
     now = datetime.now(timezone.utc)
 
-    if user.last_seen and (now - user.last_seen).total_seconds() < 900:
+    if user.last_chat_opened_at and (now - user.last_chat_opened_at).total_seconds() < 900:
         return {"should_greet": False}
 
-    since = user.last_seen or (now - timedelta(hours=24))
+    since = user.last_chat_opened_at or user.last_seen or (now - timedelta(hours=24))
     away_hours = max(1, int((now - since).total_seconds() / 3600))
 
     # New matches with partner names
@@ -402,6 +420,10 @@ async def get_greeting(
     if not text:
         text = "Пока тебя не было, кое-что произошло. С чего начнём?" if has_activity else "Тихий день — но это не повод скучать. Вот что можно сделать:"
 
+    # Update last_chat_opened_at so next visit within 15 min won't re-greet
+    user.last_chat_opened_at = now
+    await db.commit()
+
     return {
         "should_greet": True,
         "has_activity": has_activity,
@@ -449,9 +471,34 @@ async def send_message(
 
         # Keyword-based action detection (overrides LLM — more reliable)
         forced_action = _detect_action(text)
+        is_help_request = _detect_help_request(text)
 
         photos = await get_user_photos(db, user.id)
-        result = await process_post_onboarding_turn(text, user, session, db, has_photos=len(photos) > 0)
+        has_photos = len(photos) > 0
+
+        # Check if we can nudge about photo (has photos, few recent matches, 14d cooldown)
+        can_nudge_photo = False
+        now_dt = datetime.now(timezone.utc)
+        if has_photos:
+            nudge_ok = (
+                not user.last_photo_nudge_at
+                or (now_dt - user.last_photo_nudge_at).total_seconds() >= 14 * 86400
+            )
+            if nudge_ok:
+                recent_matches_res = await db.execute(
+                    select(Match).where(
+                        or_(Match.user1_id == user.id, Match.user2_id == user.id),
+                        Match.created_at > now_dt - timedelta(days=7),
+                    ).limit(1)
+                )
+                if not recent_matches_res.scalar_one_or_none():
+                    can_nudge_photo = True
+                    user.last_photo_nudge_at = now_dt
+                    await db.commit()
+
+        result = await process_post_onboarding_turn(
+            text, user, session, db, has_photos=has_photos, can_nudge_photo=can_nudge_photo
+        )
 
         # If user is responding to a profile-change dialog question — update profile_text
         if session.collected_data and session.collected_data.get("profile_dialog_pending"):
@@ -485,8 +532,12 @@ async def send_message(
         action = forced_action or result.get("action")
         reply_type = "text"
         card_data = None
+        menu_buttons = None
 
-        if action == "find_people":
+        # Help request: show navigation buttons (keyword takes priority over LLM)
+        if is_help_request or result.get("menu_buttons"):
+            menu_buttons = _MENU_BUTTONS
+        elif action == "find_people":
             reply_type, card_data = await _find_people_cards(user, db)
             if reply_type == "text":
                 result["message"] = "Пока нет подходящих людей — алгоритм ещё подбирает. Убедись, что загружено фото профиля, и загляни в раздел Люди чуть позже."
@@ -503,7 +554,10 @@ async def send_message(
         elif result.get("wants_photo_upload"):
             reply_type = "photo_prompt"
 
-        return ChatMessageResponse(reply=result.get("message", ""), reply_type=reply_type, card_data=card_data)
+        return ChatMessageResponse(
+            reply=result.get("message", ""), reply_type=reply_type,
+            card_data=card_data, menu_buttons=menu_buttons,
+        )
 
     result = await process_interview_turn(text, session, db)
 

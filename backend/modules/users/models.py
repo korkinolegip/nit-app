@@ -60,6 +60,8 @@ class User(Base):
     last_seen: Mapped[datetime | None] = mapped_column(TIMESTAMPTZ)
     views_seen_at: Mapped[datetime | None] = mapped_column(TIMESTAMPTZ)
     last_profile_dialog_at: Mapped[datetime | None] = mapped_column(TIMESTAMPTZ)
+    last_chat_opened_at: Mapped[datetime | None] = mapped_column(TIMESTAMPTZ)
+    last_photo_nudge_at: Mapped[datetime | None] = mapped_column(TIMESTAMPTZ)
 
     created_at: Mapped[datetime] = mapped_column(TIMESTAMPTZ, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(

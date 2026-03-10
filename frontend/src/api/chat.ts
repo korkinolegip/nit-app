@@ -8,6 +8,7 @@ export interface ChatResponse {
   collected_data: Record<string, any> | null
   quick_replies: string[] | null
   card_data: Record<string, any> | null
+  menu_buttons?: GreetingMenuButton[] | null
 }
 
 export interface ChatStatus {

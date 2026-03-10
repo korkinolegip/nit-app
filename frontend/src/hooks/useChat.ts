@@ -71,6 +71,13 @@ export function useChat(opts?: { onNavigate?: (screen: 'discovery' | 'matches' |
       } else if (res.reply_type === 'go_to_views' || res.reply_type === 'navigate_views') {
         addMessage({ sender: 'ai', text: res.reply, type: 'text' })
         setTimeout(() => opts?.onNavigate?.('views'), 700)
+      } else if (res.menu_buttons && res.menu_buttons.length > 0) {
+        addMessage({
+          sender: 'ai',
+          text: res.reply,
+          type: 'greeting',
+          greetingData: { menu_buttons: res.menu_buttons },
+        })
       } else {
         addMessage({ sender: 'ai', text: res.reply, type: 'text' })
         if (res.quick_replies && res.quick_replies.length > 0) {
