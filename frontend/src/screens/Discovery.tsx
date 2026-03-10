@@ -1,10 +1,33 @@
 import { useState, useEffect, useRef } from 'react'
-import { getMatches, matchAction, restoreSkip, Match } from '../api/matches'
+import { getPeople, matchAction, restoreSkip, Match, PeopleFilters, DEFAULT_PEOPLE_FILTERS } from '../api/matches'
 import Loader from '../components/Loader'
 
 interface DiscoveryProps {
   onBack: () => void
   onOpenChat: (matchId: number) => void
+}
+
+const FILTERS_KEY = 'people_filters'
+
+function loadFilters(): PeopleFilters {
+  try {
+    const raw = localStorage.getItem(FILTERS_KEY)
+    if (raw) return { ...DEFAULT_PEOPLE_FILTERS, ...JSON.parse(raw) }
+  } catch {}
+  return { ...DEFAULT_PEOPLE_FILTERS }
+}
+
+function saveFilters(f: PeopleFilters) {
+  localStorage.setItem(FILTERS_KEY, JSON.stringify(f))
+}
+
+function filtersActive(f: PeopleFilters): boolean {
+  return (
+    f.gender !== 'all' ||
+    f.age_min !== DEFAULT_PEOPLE_FILTERS.age_min ||
+    f.age_max !== DEFAULT_PEOPLE_FILTERS.age_max ||
+    f.city.trim() !== ''
+  )
 }
 
 export default function Discovery({ onBack, onOpenChat }: DiscoveryProps) {
@@ -18,17 +41,24 @@ export default function Discovery({ onBack, onOpenChat }: DiscoveryProps) {
   const [exitAnim, setExitAnim] = useState<'left' | 'right' | null>(null)
   const [viewingProfile, setViewingProfile] = useState<Match | null>(null)
   const [restoring, setRestoring] = useState<number | null>(null)
+  const [filters, setFilters] = useState<PeopleFilters>(loadFilters)
+  const [showFilters, setShowFilters] = useState(false)
   const touchStartX = useRef(0)
   const touchStartY = useRef(0)
 
+  const loadCandidates = async (f: PeopleFilters) => {
+    setLoading(true)
+    try {
+      const data = await getPeople(f, 0)
+      setCandidates(data.matches.filter(m => m.user_action === null))
+      setReviewedMatches(data.matches.filter(m => m.user_action !== null))
+      setCurrentIndex(0)
+    } catch {}
+    setLoading(false)
+  }
+
   useEffect(() => {
-    getMatches(0)
-      .then(data => {
-        setCandidates(data.matches.filter(m => m.user_action === null))
-        setReviewedMatches(data.matches.filter(m => m.user_action !== null))
-      })
-      .catch(() => {})
-      .finally(() => setLoading(false))
+    loadCandidates(filters)
   }, [])
 
   const current = candidates[currentIndex]
@@ -81,6 +111,13 @@ export default function Discovery({ onBack, onOpenChat }: DiscoveryProps) {
     }
   }
 
+  const applyFilters = (f: PeopleFilters) => {
+    saveFilters(f)
+    setFilters(f)
+    setShowFilters(false)
+    loadCandidates(f)
+  }
+
   const photos = current?.user.photos.filter(p => p.url) ?? []
   const primaryIdx = photos.findIndex(p => p.is_primary)
   const orderedPhotos = primaryIdx > 0
@@ -100,6 +137,7 @@ export default function Discovery({ onBack, onOpenChat }: DiscoveryProps) {
   }
 
   const hasPending = !loading && currentIndex < candidates.length
+  const isFiltersActive = filtersActive(filters)
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100dvh', background: 'var(--bg)' }}>
@@ -119,7 +157,25 @@ export default function Discovery({ onBack, onOpenChat }: DiscoveryProps) {
           </svg>
         </button>
         <div style={{ fontSize: '14px', fontWeight: 600, letterSpacing: '.04em', color: 'var(--w)' }}>ЛЮДИ</div>
-        <div style={{ width: 32 }} />
+        <button
+          onClick={() => setShowFilters(true)}
+          style={{
+            background: 'none', border: 'none', cursor: 'pointer',
+            width: 32, height: 32, display: 'flex', alignItems: 'center', justifyContent: 'center',
+            color: 'var(--d2)', position: 'relative',
+          }}
+        >
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
+            <path d="M4 6h16M7 12h10M10 18h4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+          </svg>
+          {isFiltersActive && (
+            <div style={{
+              position: 'absolute', top: 6, right: 6,
+              width: 7, height: 7, borderRadius: '50%',
+              background: '#e53e3e', border: '1.5px solid var(--bg)',
+            }} />
+          )}
+        </button>
       </div>
 
       {/* Scrollable content */}
@@ -131,7 +187,13 @@ export default function Discovery({ onBack, onOpenChat }: DiscoveryProps) {
               <Loader />
             </div>
           ) : !hasPending ? (
-            <EmptyState onBack={onBack} exhausted={candidates.length > 0 || reviewedMatches.length > 0} hasReviewed={reviewedMatches.length > 0} />
+            <EmptyState
+              onBack={onBack}
+              exhausted={candidates.length > 0 || reviewedMatches.length > 0}
+              hasReviewed={reviewedMatches.length > 0}
+              filtersActive={isFiltersActive}
+              onResetFilters={() => applyFilters({ ...DEFAULT_PEOPLE_FILTERS })}
+            />
           ) : (
             <>
               {/* Card */}
@@ -376,7 +438,197 @@ export default function Discovery({ onBack, onOpenChat }: DiscoveryProps) {
           restoring={restoring === viewingProfile.match_id}
         />
       )}
+
+      {/* Filter sheet */}
+      {showFilters && (
+        <FilterSheet
+          filters={filters}
+          onApply={applyFilters}
+          onClose={() => setShowFilters(false)}
+        />
+      )}
     </div>
+  )
+}
+
+function FilterSheet({ filters, onApply, onClose }: {
+  filters: PeopleFilters
+  onApply: (f: PeopleFilters) => void
+  onClose: () => void
+}) {
+  const [local, setLocal] = useState<PeopleFilters>({ ...filters })
+
+  const minPct = ((local.age_min - 18) / (80 - 18)) * 100
+  const maxPct = ((local.age_max - 18) / (80 - 18)) * 100
+  const trackBg = `linear-gradient(to right, var(--l) ${minPct}%, var(--w) ${minPct}%, var(--w) ${maxPct}%, var(--l) ${maxPct}%)`
+
+  return (
+    <>
+      {/* Backdrop */}
+      <div
+        onClick={onClose}
+        style={{ position: 'fixed', inset: 0, zIndex: 400, background: 'rgba(0,0,0,.5)' }}
+      />
+      {/* Sheet */}
+      <div style={{
+        position: 'fixed', bottom: 0, left: 0, right: 0, zIndex: 401,
+        background: 'var(--bg2)', borderRadius: '20px 20px 0 0',
+        padding: '20px 20px', paddingBottom: 'max(24px, env(safe-area-inset-bottom, 24px))',
+        animation: 'slideUpSheet 0.3s cubic-bezier(0.34,1.1,0.64,1)',
+      }}>
+        {/* Handle */}
+        <div style={{ width: 36, height: 4, background: 'var(--l)', borderRadius: 2, margin: '0 auto 20px' }} />
+
+        {/* Title */}
+        <div style={{ fontSize: 16, fontWeight: 600, color: 'var(--w)', marginBottom: 20 }}>Фильтры</div>
+
+        {/* Gender tabs */}
+        <div style={{ marginBottom: 24 }}>
+          <div style={{ fontSize: 12, fontWeight: 600, letterSpacing: '.06em', color: 'var(--d3)', textTransform: 'uppercase', marginBottom: 10 }}>
+            Пол
+          </div>
+          <div style={{ display: 'flex', gap: 8 }}>
+            {(['all', 'female', 'male'] as const).map(g => {
+              const labels = { all: 'Все', female: 'Девушки', male: 'Парни' }
+              return (
+                <button
+                  key={g}
+                  onClick={() => setLocal(f => ({ ...f, gender: g }))}
+                  style={{
+                    flex: 1, padding: '10px 0',
+                    background: local.gender === g ? 'var(--w)' : 'var(--bg3)',
+                    border: '1px solid var(--l)', borderRadius: 10,
+                    color: local.gender === g ? 'var(--bg)' : 'var(--d2)',
+                    fontSize: 14, fontWeight: local.gender === g ? 600 : 400,
+                    cursor: 'pointer', fontFamily: 'Inter',
+                    transition: 'background 0.15s, color 0.15s',
+                  }}
+                >
+                  {labels[g]}
+                </button>
+              )
+            })}
+          </div>
+        </div>
+
+        {/* Age range */}
+        <div style={{ marginBottom: 24 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+            <div style={{ fontSize: 12, fontWeight: 600, letterSpacing: '.06em', color: 'var(--d3)', textTransform: 'uppercase' }}>
+              Возраст
+            </div>
+            <div style={{ fontSize: 14, color: 'var(--d2)' }}>
+              {local.age_min} – {local.age_max}
+            </div>
+          </div>
+          <div style={{ position: 'relative', height: 28, pointerEvents: 'none' }}>
+            {/* Track */}
+            <div style={{
+              position: 'absolute', top: '50%', left: 0, right: 0,
+              height: 4, borderRadius: 2, background: trackBg,
+              transform: 'translateY(-50%)',
+            }} />
+            {/* Min thumb */}
+            <input
+              type="range"
+              min={18} max={80}
+              value={local.age_min}
+              onChange={e => {
+                const v = Number(e.target.value)
+                if (v < local.age_max) setLocal(f => ({ ...f, age_min: v }))
+              }}
+              style={{
+                position: 'absolute', inset: 0, width: '100%', height: '100%',
+                opacity: 0, pointerEvents: 'all', cursor: 'pointer', margin: 0,
+                WebkitAppearance: 'none', appearance: 'none',
+              }}
+            />
+            {/* Max thumb */}
+            <input
+              type="range"
+              min={18} max={80}
+              value={local.age_max}
+              onChange={e => {
+                const v = Number(e.target.value)
+                if (v > local.age_min) setLocal(f => ({ ...f, age_max: v }))
+              }}
+              style={{
+                position: 'absolute', inset: 0, width: '100%', height: '100%',
+                opacity: 0, pointerEvents: 'all', cursor: 'pointer', margin: 0,
+                WebkitAppearance: 'none', appearance: 'none',
+              }}
+            />
+            {/* Visual thumbs */}
+            <div style={{
+              position: 'absolute', top: '50%', transform: 'translate(-50%, -50%)',
+              left: `${minPct}%`,
+              width: 22, height: 22, borderRadius: '50%',
+              background: 'var(--w)', border: '2px solid var(--bg)',
+              boxShadow: '0 1px 4px rgba(0,0,0,.4)', pointerEvents: 'none',
+            }} />
+            <div style={{
+              position: 'absolute', top: '50%', transform: 'translate(-50%, -50%)',
+              left: `${maxPct}%`,
+              width: 22, height: 22, borderRadius: '50%',
+              background: 'var(--w)', border: '2px solid var(--bg)',
+              boxShadow: '0 1px 4px rgba(0,0,0,.4)', pointerEvents: 'none',
+            }} />
+          </div>
+        </div>
+
+        {/* City */}
+        <div style={{ marginBottom: 28 }}>
+          <div style={{ fontSize: 12, fontWeight: 600, letterSpacing: '.06em', color: 'var(--d3)', textTransform: 'uppercase', marginBottom: 10 }}>
+            Город
+          </div>
+          <input
+            type="text"
+            placeholder="Например, Москва"
+            value={local.city}
+            onChange={e => setLocal(f => ({ ...f, city: e.target.value }))}
+            style={{
+              width: '100%', padding: '12px 14px',
+              background: 'var(--bg3)', border: '1px solid var(--l)', borderRadius: 12,
+              color: 'var(--w)', fontSize: 15, fontFamily: 'Inter',
+              outline: 'none', boxSizing: 'border-box',
+            }}
+          />
+        </div>
+
+        {/* Buttons */}
+        <div style={{ display: 'flex', gap: 10 }}>
+          <button
+            onClick={() => {
+              const reset = { ...DEFAULT_PEOPLE_FILTERS }
+              setLocal(reset)
+              onApply(reset)
+            }}
+            style={{
+              flex: 1, padding: '14px',
+              background: 'none', border: '1px solid var(--l)', borderRadius: 12,
+              color: 'var(--d2)', fontSize: 15, fontWeight: 500,
+              cursor: 'pointer', fontFamily: 'Inter',
+            }}
+          >
+            Сбросить
+          </button>
+          <button
+            onClick={() => onApply(local)}
+            style={{
+              flex: 2, padding: '14px',
+              background: 'var(--w)', border: 'none', borderRadius: 12,
+              color: 'var(--bg)', fontSize: 15, fontWeight: 600,
+              cursor: 'pointer', fontFamily: 'Inter',
+            }}
+          >
+            Применить
+          </button>
+        </div>
+      </div>
+      <style>{`
+        @keyframes slideUpSheet { from { transform: translateY(100%) } to { transform: none } }
+      `}</style>
+    </>
   )
 }
 
@@ -657,7 +909,13 @@ function attachmentLabel(hint: string): string {
   return map[hint] || hint
 }
 
-function EmptyState({ onBack, exhausted, hasReviewed }: { onBack: () => void; exhausted: boolean; hasReviewed: boolean }) {
+function EmptyState({ onBack, exhausted, hasReviewed, filtersActive, onResetFilters }: {
+  onBack: () => void
+  exhausted: boolean
+  hasReviewed: boolean
+  filtersActive: boolean
+  onResetFilters: () => void
+}) {
   return (
     <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: 32 }}>
       <div style={{
@@ -682,8 +940,17 @@ function EmptyState({ onBack, exhausted, hasReviewed }: { onBack: () => void; ex
             : 'Алгоритм подберёт новых кандидатов. Загляни позже.'
           : 'Добавь фото — и алгоритм подберёт подходящих людей с совместимостью в процентах'}
       </div>
+      {filtersActive && (
+        <button onClick={onResetFilters} style={{
+          marginTop: 20, padding: '11px 22px', background: 'none',
+          border: '1px solid var(--l)', borderRadius: 12,
+          color: 'var(--d2)', fontFamily: 'Inter', fontSize: 14, fontWeight: 500, cursor: 'pointer',
+        }}>
+          Сбросить фильтры
+        </button>
+      )}
       <button onClick={onBack} style={{
-        marginTop: 32, padding: '13px 28px', background: 'var(--w)',
+        marginTop: 12, padding: '13px 28px', background: 'var(--w)',
         color: 'var(--bg)', border: 'none', borderRadius: 12,
         fontFamily: 'Inter', fontSize: 14, fontWeight: 600, cursor: 'pointer',
       }}>
