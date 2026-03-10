@@ -182,6 +182,23 @@ async def delete_photo(
     return {"status": "deleted"}
 
 
+@router.post("/photos/{photo_id}/primary")
+async def set_primary_photo(
+    photo_id: int,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    photo = await db.get(Photo, photo_id)
+    if not photo or photo.user_id != user.id:
+        raise HTTPException(404, "Photo not found")
+
+    photos = await get_user_photos(db, user.id)
+    for p in photos:
+        p.is_primary = p.id == photo_id
+    await db.commit()
+    return {"status": "ok"}
+
+
 @router.post("/pause")
 async def pause_profile(
     user: User = Depends(get_current_user),

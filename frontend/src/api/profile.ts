@@ -21,6 +21,14 @@ export async function uploadPhoto(file: File) {
   })
 }
 
+export async function deletePhoto(photoId: number) {
+  return apiRequest(`/api/profile/photos/${photoId}`, { method: 'DELETE' })
+}
+
+export async function setPrimaryPhoto(photoId: number) {
+  return apiRequest(`/api/profile/photos/${photoId}/primary`, { method: 'POST' })
+}
+
 export async function deleteProfile() {
   return apiRequest('/api/profile', { method: 'DELETE' })
 }

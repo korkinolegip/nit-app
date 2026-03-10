@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { getProfile, updateProfile, deleteProfile, uploadPhoto } from '../api/profile'
+import { getProfile, updateProfile, deleteProfile, uploadPhoto, deletePhoto, setPrimaryPhoto } from '../api/profile'
 
 interface ProfileProps {
   onBack: () => void
@@ -86,6 +86,8 @@ export default function Profile({ onBack }: ProfileProps) {
     }
   }
 
+  const touchStartX = useRef<number>(0)
+
   const handlePhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (!file) return
@@ -93,7 +95,6 @@ export default function Profile({ onBack }: ProfileProps) {
     setUploadingPhoto(true)
     try {
       await uploadPhoto(file)
-      // Refresh photos
       const data: any = await getProfile()
       setPhotos((data.photos || []).filter((p: PhotoData) => p.url))
       setPhotoIndex(0)
@@ -101,6 +102,26 @@ export default function Profile({ onBack }: ProfileProps) {
       // silently fail
     } finally {
       setUploadingPhoto(false)
+    }
+  }
+
+  const handleDeletePhoto = async (photoId: number) => {
+    try {
+      await deletePhoto(photoId)
+      const newPhotos = photos.filter(p => p.id !== photoId)
+      setPhotos(newPhotos)
+      setPhotoIndex(i => Math.min(i, Math.max(0, newPhotos.filter(p => p.moderation_status === 'approved' && p.url).length - 1)))
+    } catch {
+      // silently fail
+    }
+  }
+
+  const handleSetPrimary = async (photoId: number) => {
+    try {
+      await setPrimaryPhoto(photoId)
+      setPhotos(prev => prev.map(p => ({ ...p, is_primary: p.id === photoId })))
+    } catch {
+      // silently fail
     }
   }
 
@@ -151,91 +172,81 @@ export default function Profile({ onBack }: ProfileProps) {
           </div>
         ) : (
           <>
-            {/* Photo carousel or avatar */}
-            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', marginBottom: '28px' }}>
+            {/* Photos */}
+            <div style={{ marginBottom: '24px' }}>
+              <input ref={fileInputRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={handlePhotoUpload} />
+
               {approvedPhotos.length > 0 ? (
-                <div style={{ position: 'relative', width: '100%', maxWidth: 300 }}>
-                  <div style={{
-                    width: '100%', aspectRatio: '1', borderRadius: '20px',
-                    overflow: 'hidden', background: 'var(--bg3)', border: '1px solid var(--l)',
-                  }}>
-                    <img
-                      src={currentPhoto?.url}
-                      alt=""
-                      style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-                    />
-                  </div>
-                  {approvedPhotos.length > 1 && (
-                    <>
-                      <div style={{ display: 'flex', justifyContent: 'center', gap: 6, marginTop: 10 }}>
-                        {approvedPhotos.map((_, i) => (
-                          <div
-                            key={i}
-                            onClick={() => setPhotoIndex(i)}
-                            style={{
-                              width: i === photoIndex ? 18 : 6, height: 6,
-                              borderRadius: 3, cursor: 'pointer',
-                              background: i === photoIndex ? 'var(--w)' : 'var(--d4)',
-                              transition: 'all .2s',
-                            }}
-                          />
-                        ))}
+                <>
+                  {/* Main photo with swipe */}
+                  <div
+                    style={{ position: 'relative', width: '100%', aspectRatio: '1', borderRadius: '20px', overflow: 'hidden', background: 'var(--bg3)', border: '1px solid var(--l)', marginBottom: 10 }}
+                    onTouchStart={e => { touchStartX.current = e.touches[0].clientX }}
+                    onTouchEnd={e => {
+                      const dx = e.changedTouches[0].clientX - touchStartX.current
+                      if (dx < -40 && photoIndex < approvedPhotos.length - 1) setPhotoIndex(i => i + 1)
+                      if (dx > 40 && photoIndex > 0) setPhotoIndex(i => i - 1)
+                    }}
+                  >
+                    <img src={currentPhoto?.url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+
+                    {/* Primary badge */}
+                    {currentPhoto?.is_primary && (
+                      <div style={{ position: 'absolute', top: 10, left: 10, background: 'rgba(0,0,0,.6)', borderRadius: 8, padding: '3px 8px', fontSize: 11, color: 'white', fontWeight: 600 }}>
+                        Главное
                       </div>
-                      {photoIndex > 0 && (
+                    )}
+
+                    {/* Controls overlay */}
+                    <div style={{ position: 'absolute', bottom: 10, right: 10, display: 'flex', gap: 6 }}>
+                      {!currentPhoto?.is_primary && (
                         <button
-                          onClick={() => setPhotoIndex(i => i - 1)}
-                          style={{
-                            position: 'absolute', left: 8, top: '40%', transform: 'translateY(-50%)',
-                            background: 'rgba(0,0,0,.5)', border: 'none', borderRadius: '50%',
-                            width: 32, height: 32, color: 'white', cursor: 'pointer', fontSize: 20,
-                            display: 'flex', alignItems: 'center', justifyContent: 'center',
-                          }}
-                        >‹</button>
+                          onClick={() => currentPhoto && handleSetPrimary(currentPhoto.id)}
+                          style={{ background: 'rgba(0,0,0,.6)', border: 'none', borderRadius: 8, padding: '6px 10px', color: 'white', fontSize: 12, cursor: 'pointer', fontFamily: 'Inter' }}
+                        >
+                          ★ Главное
+                        </button>
                       )}
-                      {photoIndex < approvedPhotos.length - 1 && (
-                        <button
-                          onClick={() => setPhotoIndex(i => i + 1)}
-                          style={{
-                            position: 'absolute', right: 8, top: '40%', transform: 'translateY(-50%)',
-                            background: 'rgba(0,0,0,.5)', border: 'none', borderRadius: '50%',
-                            width: 32, height: 32, color: 'white', cursor: 'pointer', fontSize: 20,
-                            display: 'flex', alignItems: 'center', justifyContent: 'center',
-                          }}
-                        >›</button>
-                      )}
-                    </>
+                      <button
+                        onClick={() => currentPhoto && handleDeletePhoto(currentPhoto.id)}
+                        style={{ background: 'rgba(200,0,0,.7)', border: 'none', borderRadius: 8, padding: '6px 10px', color: 'white', fontSize: 12, cursor: 'pointer', fontFamily: 'Inter' }}
+                      >
+                        Удалить
+                      </button>
+                    </div>
+
+                    {/* Arrow nav */}
+                    {photoIndex > 0 && (
+                      <button onClick={() => setPhotoIndex(i => i - 1)} style={{ position: 'absolute', left: 8, top: '50%', transform: 'translateY(-50%)', background: 'rgba(0,0,0,.5)', border: 'none', borderRadius: '50%', width: 32, height: 32, color: 'white', cursor: 'pointer', fontSize: 20, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>‹</button>
+                    )}
+                    {photoIndex < approvedPhotos.length - 1 && (
+                      <button onClick={() => setPhotoIndex(i => i + 1)} style={{ position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)', background: 'rgba(0,0,0,.5)', border: 'none', borderRadius: '50%', width: 32, height: 32, color: 'white', cursor: 'pointer', fontSize: 20, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>›</button>
+                    )}
+                  </div>
+
+                  {/* Dots */}
+                  {approvedPhotos.length > 1 && (
+                    <div style={{ display: 'flex', justifyContent: 'center', gap: 6, marginBottom: 12 }}>
+                      {approvedPhotos.map((_, i) => (
+                        <div key={i} onClick={() => setPhotoIndex(i)} style={{ width: i === photoIndex ? 18 : 6, height: 6, borderRadius: 3, cursor: 'pointer', background: i === photoIndex ? 'var(--w)' : 'var(--d4)', transition: 'all .2s' }} />
+                      ))}
+                    </div>
                   )}
-                </div>
+                </>
               ) : (
-                <div style={{
-                  width: 88, height: 88, borderRadius: '24px',
-                  background: 'var(--bg3)', border: '1px solid var(--l)',
-                  display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  fontSize: '32px', color: 'var(--d3)',
-                }}>
-                  {profile.name ? profile.name[0].toUpperCase() : '?'}
+                <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 12 }}>
+                  <div style={{ width: 88, height: 88, borderRadius: '24px', background: 'var(--bg3)', border: '1px solid var(--l)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '32px', color: 'var(--d3)' }}>
+                    {profile.name ? profile.name[0].toUpperCase() : '?'}
+                  </div>
                 </div>
               )}
 
               {/* Add photo button */}
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept="image/*"
-                style={{ display: 'none' }}
-                onChange={handlePhotoUpload}
-              />
               {approvedPhotos.length < 5 && (
                 <button
                   onClick={() => fileInputRef.current?.click()}
                   disabled={uploadingPhoto}
-                  style={{
-                    marginTop: 12, padding: '9px 20px',
-                    background: 'none', border: '1px solid var(--l)',
-                    borderRadius: '10px', color: 'var(--d2)',
-                    fontFamily: 'Inter', fontSize: '13px', fontWeight: 500,
-                    cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6,
-                  }}
+                  style={{ width: '100%', padding: '11px', background: 'none', border: '1px dashed var(--d4)', borderRadius: '12px', color: 'var(--d3)', fontFamily: 'Inter', fontSize: '13px', fontWeight: 500, cursor: 'pointer' }}
                 >
                   {uploadingPhoto ? 'Загружаю...' : `+ Добавить фото (${approvedPhotos.length}/5)`}
                 </button>
