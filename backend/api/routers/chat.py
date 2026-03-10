@@ -149,7 +149,8 @@ async def send_message(
             if changed:
                 await db.commit()
 
-        return ChatMessageResponse(reply=result.get("message", ""), reply_type="text")
+        reply_type = "photo_prompt" if result.get("wants_photo_upload") else "text"
+        return ChatMessageResponse(reply=result.get("message", ""), reply_type=reply_type)
 
     result = await process_interview_turn(text, session, db)
 

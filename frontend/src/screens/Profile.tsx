@@ -1,5 +1,5 @@
-import { useState, useEffect } from 'react'
-import { getProfile, updateProfile, deleteProfile } from '../api/profile'
+import { useState, useEffect, useRef } from 'react'
+import { getProfile, updateProfile, deleteProfile, uploadPhoto } from '../api/profile'
 
 interface ProfileProps {
   onBack: () => void
@@ -41,6 +41,8 @@ export default function Profile({ onBack }: ProfileProps) {
   const [editValue, setEditValue] = useState('')
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [deleting, setDeleting] = useState(false)
+  const [uploadingPhoto, setUploadingPhoto] = useState(false)
+  const fileInputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
     getProfile()
@@ -81,6 +83,24 @@ export default function Profile({ onBack }: ProfileProps) {
     } catch {
       setDeleting(false)
       setConfirmDelete(false)
+    }
+  }
+
+  const handlePhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    e.target.value = ''
+    setUploadingPhoto(true)
+    try {
+      await uploadPhoto(file)
+      // Refresh photos
+      const data: any = await getProfile()
+      setPhotos((data.photos || []).filter((p: PhotoData) => p.url))
+      setPhotoIndex(0)
+    } catch {
+      // silently fail
+    } finally {
+      setUploadingPhoto(false)
     }
   }
 
@@ -195,6 +215,30 @@ export default function Profile({ onBack }: ProfileProps) {
                 }}>
                   {profile.name ? profile.name[0].toUpperCase() : '?'}
                 </div>
+              )}
+
+              {/* Add photo button */}
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/*"
+                style={{ display: 'none' }}
+                onChange={handlePhotoUpload}
+              />
+              {approvedPhotos.length < 5 && (
+                <button
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={uploadingPhoto}
+                  style={{
+                    marginTop: 12, padding: '9px 20px',
+                    background: 'none', border: '1px solid var(--l)',
+                    borderRadius: '10px', color: 'var(--d2)',
+                    fontFamily: 'Inter', fontSize: '13px', fontWeight: 500,
+                    cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6,
+                  }}
+                >
+                  {uploadingPhoto ? 'Загружаю...' : `+ Добавить фото (${approvedPhotos.length}/5)`}
+                </button>
               )}
             </div>
 

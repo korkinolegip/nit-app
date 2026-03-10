@@ -22,6 +22,11 @@ async def upload_file(storage_key: str, file_data: bytes, content_type: str = "i
 
 
 async def get_photo_signed_url(storage_key: str) -> str:
+    # Supabase Storage: use native public URL (more reliable than S3 presigned for Supabase)
+    if "supabase.co" in settings.S3_ENDPOINT:
+        project_ref = settings.S3_ENDPOINT.replace("https://", "").split(".")[0]
+        return f"https://{project_ref}.supabase.co/storage/v1/object/public/{settings.S3_BUCKET}/{storage_key}"
+
     async with s3_session.client(
         "s3",
         endpoint_url=settings.S3_ENDPOINT,
