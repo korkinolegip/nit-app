@@ -83,7 +83,7 @@ export default function App() {
       {screen === 'matchChat' && matchId !== null && (
         <MatchChat matchId={matchId} onBack={backToChat} />
       )}
-      {screen === 'discovery' && <Discovery onBack={backToChat} />}
+      {screen === 'discovery' && <Discovery onBack={backToChat} onOpenChat={openMatchChat} />}
       {screen === 'profile' && <Profile onBack={backToChat} />}
       {screen === 'matches' && <Matches onBack={backToChat} onOpenChat={openMatchChat} />}
     </>

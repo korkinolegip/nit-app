@@ -74,6 +74,19 @@ async def get_chat_history(
     return {"messages": history}
 
 
+@router.delete("/history")
+async def clear_chat_history(
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Clear the user's interview session messages (keeps profile data)."""
+    session = await get_interview_session(db, user.id)
+    if session:
+        session.messages = []
+        await db.commit()
+    return {"ok": True}
+
+
 @router.get("/status", response_model=ChatStatusResponse)
 async def get_chat_status(
     user: User = Depends(get_current_user),

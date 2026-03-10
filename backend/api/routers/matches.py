@@ -1,5 +1,8 @@
+import asyncio
+import logging
 from datetime import datetime, timedelta, timezone
 
+import httpx
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy import and_, or_, select
@@ -8,9 +11,66 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from api.middleware.auth import get_current_user
 from core.config import settings
 from core.storage import get_photo_signed_url
+from core.telegram import send_notification
 from db.connection import get_db
 from modules.users.models import DailyMatchQuota, Match, Photo, User
 from modules.users.repository import get_user
+
+logger = logging.getLogger(__name__)
+
+
+def _profile_summary(u: User) -> str:
+    parts = [f"{u.name}, {u.age} лет, {u.city}"]
+    if u.goal:
+        goals = {"romantic": "романтические отношения", "friendship": "дружба", "open": "открыт к общению"}
+        parts.append(f"ищет: {goals.get(u.goal, u.goal)}")
+    if u.personality_type:
+        parts.append(f"тип личности: {u.personality_type}")
+    if u.profile_text:
+        parts.append(u.profile_text[:200])
+    return ", ".join(parts)
+
+
+async def _groq_chat(prompt: str, max_tokens: int = 150) -> str | None:
+    if not settings.GROQ_API_KEY:
+        return None
+    try:
+        async with httpx.AsyncClient(timeout=15) as client:
+            r = await client.post(
+                "https://api.groq.com/openai/v1/chat/completions",
+                headers={"Authorization": f"Bearer {settings.GROQ_API_KEY}"},
+                json={
+                    "model": "llama-3.3-70b-versatile",
+                    "messages": [{"role": "user", "content": prompt}],
+                    "max_tokens": max_tokens,
+                    "temperature": 0.8,
+                },
+            )
+            if r.status_code == 200:
+                return r.json()["choices"][0]["message"]["content"].strip()
+    except Exception as e:
+        logger.warning(f"Groq call failed: {e}")
+    return None
+
+
+async def _generate_explanation(user_a: User, user_b: User) -> str | None:
+    prompt = (
+        "Кратко объясни (1-2 предложения на русском), почему эти два человека могут подойти друг другу. "
+        "Пиши тепло, без шаблонов, про их конкретные черты.\n\n"
+        f"Человек A: {_profile_summary(user_a)}\n"
+        f"Человек B: {_profile_summary(user_b)}"
+    )
+    return await _groq_chat(prompt, max_tokens=120)
+
+
+async def _generate_date_prep(user_a: User, user_b: User) -> str | None:
+    prompt = (
+        "Дай 2-3 конкретных совета для первого свидания этой паре (на русском, коротко, без воды). "
+        "Основывайся на их интересах и типах личности.\n\n"
+        f"Человек A: {_profile_summary(user_a)}\n"
+        f"Человек B: {_profile_summary(user_b)}"
+    )
+    return await _groq_chat(prompt, max_tokens=180)
 
 router = APIRouter(prefix="/api/matches", tags=["matches"])
 
@@ -123,10 +183,36 @@ async def match_action(
             hours=settings.MATCH_CHAT_HOURS
         )
         match_chat_id = match.id
-        # TODO: enqueue ARQ generate_match_explanation + generate_date_prep
-        # TODO: send notification to both users
 
-    await db.commit()
+        partner_id = match.user2_id if match.user1_id == user.id else match.user1_id
+        partner = await db.get(User, partner_id)
+
+        await db.commit()
+
+        if partner:
+            # Generate explanation and date prep concurrently
+            explanation, date_prep = await asyncio.gather(
+                _generate_explanation(user, partner),
+                _generate_date_prep(user, partner),
+            )
+            if explanation:
+                match.explanation_text = explanation
+                await db.commit()
+
+            # Notify both users
+            hours = settings.MATCH_CHAT_HOURS
+            await asyncio.gather(
+                send_notification(
+                    user.telegram_id,
+                    f"🎉 Взаимный матч с {partner.name}! У вас {hours} часов чтобы познакомиться — открой приложение.",
+                ),
+                send_notification(
+                    partner.telegram_id,
+                    f"🎉 Взаимный матч с {user.name}! У вас {hours} часов чтобы познакомиться — открой приложение.",
+                ),
+            )
+    else:
+        await db.commit()
 
     return {
         "mutual_match": mutual,

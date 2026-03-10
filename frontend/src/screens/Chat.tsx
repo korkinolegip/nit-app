@@ -3,7 +3,7 @@ import { useChat } from '../hooks/useChat'
 import MessageRow from '../components/MessageRow'
 import QuickReplies from '../components/QuickReplies'
 import InputBar from '../components/InputBar'
-import MenuSheet from '../components/MenuSheet'
+import SettingsSheet from '../components/SettingsSheet'
 import { transcribeVoice, getChatHistory } from '../api/chat'
 import { uploadPhoto } from '../api/profile'
 
@@ -155,21 +155,54 @@ export default function Chat({ onOpenMatch, onNavigateTo, isReturning = false, s
             AI-агент
           </div>
         </div>
-        <button
-          onClick={() => setIsMenuOpen(true)}
-          style={{
-            width: '32px', height: '32px', borderRadius: '8px',
-            border: '1px solid var(--l)', display: 'flex',
-            alignItems: 'center', justifyContent: 'center', cursor: 'pointer',
-            background: 'none',
-          }}
-        >
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
-            <circle cx="12" cy="5" r="1.5" fill="rgba(255,255,255,.4)" />
-            <circle cx="12" cy="12" r="1.5" fill="rgba(255,255,255,.4)" />
-            <circle cx="12" cy="19" r="1.5" fill="rgba(255,255,255,.4)" />
-          </svg>
-        </button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+          {([
+            { id: 'discovery' as const, label: 'Люди', path: (
+              <><circle cx="9" cy="7" r="3" stroke="currentColor" strokeWidth="1.5"/>
+              <path d="M3 20c0-3.314 2.686-6 6-6s6 2.686 6 6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+              <circle cx="17" cy="8" r="2.5" stroke="currentColor" strokeWidth="1.5"/>
+              <path d="M21 20c0-2.761-1.791-5-4-5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></>
+            )},
+            { id: 'matches' as const, label: 'Матчи', path: (
+              <path d="M12 21C12 21 3 15 3 9a5 5 0 0 1 9-3 5 5 0 0 1 9 3c0 6-9 12-9 12z" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round"/>
+            )},
+            { id: 'profile' as const, label: 'Профиль', path: (
+              <><circle cx="12" cy="8" r="3.5" stroke="currentColor" strokeWidth="1.5"/>
+              <path d="M4 20c0-4.418 3.582-8 8-8s8 3.582 8 8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></>
+            )},
+          ] as const).map(item => (
+            <button
+              key={item.id}
+              onClick={() => onNavigateTo(item.id)}
+              title={item.label}
+              style={{
+                width: '32px', height: '32px', borderRadius: '8px',
+                border: '1px solid var(--l)', display: 'flex',
+                alignItems: 'center', justifyContent: 'center', cursor: 'pointer',
+                background: 'none', color: 'rgba(255,255,255,.4)',
+                transition: 'all 0.15s',
+              }}
+              className="nav-icon-btn"
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none">{item.path}</svg>
+            </button>
+          ))}
+          <button
+            onClick={() => setIsMenuOpen(true)}
+            style={{
+              width: '28px', height: '28px', borderRadius: '7px',
+              border: '1px solid var(--l)', display: 'flex',
+              alignItems: 'center', justifyContent: 'center', cursor: 'pointer',
+              background: 'none', marginLeft: '2px',
+            }}
+          >
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none">
+              <circle cx="12" cy="5" r="1.5" fill="rgba(255,255,255,.35)" />
+              <circle cx="12" cy="12" r="1.5" fill="rgba(255,255,255,.35)" />
+              <circle cx="12" cy="19" r="1.5" fill="rgba(255,255,255,.35)" />
+            </svg>
+          </button>
+        </div>
       </div>
 
       {/* Messages */}
@@ -237,12 +270,9 @@ export default function Chat({ onOpenMatch, onNavigateTo, isReturning = false, s
       {/* Input */}
       <InputBar onSendText={send} onSendVoice={handleSendVoice} />
 
-      {/* Menu sheet */}
+      {/* Settings sheet */}
       {isMenuOpen && (
-        <MenuSheet
-          onNavigate={onNavigateTo}
-          onClose={() => setIsMenuOpen(false)}
-        />
+        <SettingsSheet onClose={() => setIsMenuOpen(false)} />
       )}
 
       <style>{`
@@ -255,6 +285,8 @@ export default function Chat({ onOpenMatch, onNavigateTo, isReturning = false, s
           to { opacity: 1; transform: none; }
         }
         @keyframes rp { 0%, 100% { opacity: 1; } 50% { opacity: .2; } }
+        .nav-icon-btn:hover { color: rgba(255,255,255,.85) !important; border-color: rgba(255,255,255,.2) !important; background: rgba(255,255,255,.05) !important; }
+        .nav-icon-btn:active { transform: scale(0.92); }
       `}</style>
     </div>
   )

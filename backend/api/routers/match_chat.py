@@ -1,15 +1,20 @@
+import logging
 from datetime import datetime, timezone
 
+import httpx
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.middleware.auth import get_current_user
+from core.config import settings
 from core.storage import get_photo_signed_url
 from db.connection import get_db
 from modules.users.models import ContactExchange, Match, MatchMessage, Photo, User
 from modules.users.repository import get_user
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/match-chat", tags=["match-chat"])
 
@@ -180,5 +185,59 @@ async def request_analysis(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    # TODO: enqueue ARQ analyze_match_chat task
-    return {"analysis_text": "Анализ переписки в разработке."}
+    match = await db.get(Match, match_id)
+    if not match:
+        raise HTTPException(404, "Match not found")
+    if user.id not in (match.user1_id, match.user2_id):
+        raise HTTPException(403, "Not your match")
+
+    # Fetch messages
+    result = await db.execute(
+        select(MatchMessage)
+        .where(MatchMessage.match_id == match_id)
+        .order_by(MatchMessage.created_at)
+    )
+    messages = list(result.scalars().all())
+
+    if not messages:
+        return {"analysis_text": "Переписка пуста — нечего анализировать."}
+
+    partner_id = match.user2_id if match.user1_id == user.id else match.user1_id
+    partner = await get_user(db, partner_id)
+    partner_name = partner.name if partner else "Партнёр"
+
+    # Build dialogue transcript
+    lines = []
+    for m in messages:
+        speaker = user.name if m.sender_id == user.id else partner_name
+        lines.append(f"{speaker}: {m.text or '[голос]'}")
+    transcript = "\n".join(lines[:60])  # limit to 60 messages
+
+    if not settings.GROQ_API_KEY:
+        return {"analysis_text": "Анализ недоступен."}
+
+    prompt = (
+        "Проанализируй переписку двух людей (3-5 предложений на русском). "
+        "Отметь тон общения, что получилось, где могли быть недопонимания, "
+        "и дай один практичный совет для следующего общения. Пиши тепло и честно.\n\n"
+        f"Переписка:\n{transcript}"
+    )
+    try:
+        async with httpx.AsyncClient(timeout=20) as client:
+            r = await client.post(
+                "https://api.groq.com/openai/v1/chat/completions",
+                headers={"Authorization": f"Bearer {settings.GROQ_API_KEY}"},
+                json={
+                    "model": "llama-3.3-70b-versatile",
+                    "messages": [{"role": "user", "content": prompt}],
+                    "max_tokens": 250,
+                    "temperature": 0.75,
+                },
+            )
+            if r.status_code == 200:
+                text = r.json()["choices"][0]["message"]["content"].strip()
+                return {"analysis_text": text}
+    except Exception as e:
+        logger.warning(f"Chat analysis failed: {e}")
+
+    return {"analysis_text": "Не удалось проанализировать переписку. Попробуй позже."}
