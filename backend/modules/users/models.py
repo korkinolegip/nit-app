@@ -57,6 +57,8 @@ class User(Base):
 
     prompt_version_id: Mapped[int | None] = mapped_column()
 
+    last_seen: Mapped[datetime | None] = mapped_column(TIMESTAMPTZ)
+
     created_at: Mapped[datetime] = mapped_column(TIMESTAMPTZ, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         TIMESTAMPTZ, server_default=func.now(), onupdate=func.now()
@@ -336,3 +338,18 @@ class ConsentLog(Base):
     consented: Mapped[bool] = mapped_column(Boolean, nullable=False)
     ip_hash: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(TIMESTAMPTZ, server_default=func.now())
+
+
+class ProfileView(Base):
+    __tablename__ = "profile_views"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    viewer_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
+    viewed_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
+    duration_seconds: Mapped[int | None] = mapped_column(SmallInteger)
+    seen_at: Mapped[datetime] = mapped_column(TIMESTAMPTZ, server_default=func.now())
+
+    __table_args__ = (
+        Index("idx_profile_views_viewed_id", "viewed_id", "seen_at"),
+        Index("idx_profile_views_viewer_id", "viewer_id", "seen_at"),
+    )

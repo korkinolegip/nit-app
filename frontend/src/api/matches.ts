@@ -12,6 +12,9 @@ export interface MatchUser {
   strengths: string[]
   ideal_partner_traits: string[]
   photos: { url: string; is_primary: boolean }[]
+  is_online: boolean
+  last_seen_text: string | null
+  created_at: string
 }
 
 export interface Match {
@@ -55,6 +58,9 @@ export interface MatchPartnerProfile {
   strengths: string[]
   ideal_partner_traits: string[]
   photos: { url: string; is_primary: boolean }[]
+  is_online: boolean
+  last_seen_text: string | null
+  created_at: string | null
 }
 
 export interface MatchChatData {

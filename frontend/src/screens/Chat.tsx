@@ -4,6 +4,7 @@ import MessageRow from '../components/MessageRow'
 import QuickReplies from '../components/QuickReplies'
 import InputBar from '../components/InputBar'
 import SettingsSheet from '../components/SettingsSheet'
+import MenuSheet from '../components/MenuSheet'
 import { transcribeVoice, getChatHistory } from '../api/chat'
 import { uploadPhoto } from '../api/profile'
 
@@ -22,16 +23,18 @@ interface CardItem {
 
 interface ChatProps {
   onOpenMatch: (matchId: number) => void
-  onNavigateTo: (screen: 'discovery' | 'matches' | 'profile') => void
+  onNavigateTo: (screen: 'discovery' | 'matches' | 'chats' | 'views' | 'profile') => void
   isReturning?: boolean
   sessionComplete?: boolean
   hasPhotos?: boolean
+  badges?: { matches?: number; chats?: number; views?: number }
 }
 
-export default function Chat({ onOpenMatch, onNavigateTo, isReturning = false, sessionComplete = false, hasPhotos = false }: ChatProps) {
+export default function Chat({ onOpenMatch, onNavigateTo, isReturning = false, sessionComplete = false, hasPhotos = false, badges = {} }: ChatProps) {
   const { messages, isTyping, quickReplies, send, addMessage, scrollRef, setQuickReplies } = useChat({ onNavigate: onNavigateTo })
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [isMenuOpen, setIsMenuOpen] = useState(false)
+  const [isNavOpen, setIsNavOpen] = useState(false)
   const [viewingCard, setViewingCard] = useState<CardItem | null>(null)
 
   // Initial greeting / history restore
@@ -175,46 +178,38 @@ export default function Chat({ onOpenMatch, onNavigateTo, isReturning = false, s
             AI-агент
           </div>
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
-          {([
-            { id: 'discovery' as const, label: 'Люди', path: (
-              <><circle cx="9" cy="7" r="3" stroke="currentColor" strokeWidth="1.5"/>
-              <path d="M3 20c0-3.314 2.686-6 6-6s6 2.686 6 6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
-              <circle cx="17" cy="8" r="2.5" stroke="currentColor" strokeWidth="1.5"/>
-              <path d="M21 20c0-2.761-1.791-5-4-5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></>
-            )},
-            { id: 'matches' as const, label: 'Матчи', path: (
-              <path d="M12 21C12 21 3 15 3 9a5 5 0 0 1 9-3 5 5 0 0 1 9 3c0 6-9 12-9 12z" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round"/>
-            )},
-            { id: 'profile' as const, label: 'Профиль', path: (
-              <><circle cx="12" cy="8" r="3.5" stroke="currentColor" strokeWidth="1.5"/>
-              <path d="M4 20c0-4.418 3.582-8 8-8s8 3.582 8 8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></>
-            )},
-          ] as const).map(item => (
-            <button
-              key={item.id}
-              onClick={() => onNavigateTo(item.id)}
-              title={item.label}
-              style={{
-                width: '38px', height: '38px', borderRadius: '10px',
-                border: '1px solid var(--l)', display: 'flex', flexDirection: 'column',
-                alignItems: 'center', justifyContent: 'center', cursor: 'pointer',
-                background: 'none', color: 'rgba(255,255,255,.5)',
-                gap: '3px', transition: 'all 0.15s',
-              }}
-              className="nav-icon-btn"
-            >
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none">{item.path}</svg>
-              <span style={{ fontSize: '8px', fontWeight: 600, letterSpacing: '.04em', color: 'inherit', lineHeight: 1 }}>{item.label}</span>
-            </button>
-          ))}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+          {/* Nav menu button */}
+          <button
+            onClick={() => setIsNavOpen(true)}
+            style={{
+              position: 'relative',
+              width: '38px', height: '38px', borderRadius: '10px',
+              border: '1px solid var(--l)', display: 'flex',
+              alignItems: 'center', justifyContent: 'center', cursor: 'pointer',
+              background: 'none',
+            }}
+          >
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
+              <path d="M3 12h18M3 6h18M3 18h18" stroke="rgba(255,255,255,.55)" strokeWidth="1.5" strokeLinecap="round"/>
+            </svg>
+            {/* Badge: total unread */}
+            {(badges.matches || 0) + (badges.chats || 0) + (badges.views || 0) > 0 && (
+              <div style={{
+                position: 'absolute', top: 4, right: 4,
+                width: 8, height: 8, borderRadius: '50%',
+                background: '#ff4466',
+              }} />
+            )}
+          </button>
+          {/* Settings button */}
           <button
             onClick={() => setIsMenuOpen(true)}
             style={{
               width: '28px', height: '28px', borderRadius: '7px',
               border: '1px solid var(--l)', display: 'flex',
               alignItems: 'center', justifyContent: 'center', cursor: 'pointer',
-              background: 'none', marginLeft: '2px',
+              background: 'none',
             }}
           >
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none">
@@ -292,6 +287,14 @@ export default function Chat({ onOpenMatch, onNavigateTo, isReturning = false, s
 
       {isMenuOpen && (
         <SettingsSheet onClose={() => setIsMenuOpen(false)} />
+      )}
+
+      {isNavOpen && (
+        <MenuSheet
+          onNavigate={(screen) => { onNavigateTo(screen as any); setIsNavOpen(false) }}
+          onClose={() => setIsNavOpen(false)}
+          badges={badges}
+        />
       )}
 
       {/* Profile modal for user card */}

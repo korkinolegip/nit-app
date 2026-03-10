@@ -13,10 +13,11 @@ from api.middleware.rate_limit import check_rate_limit
 from core.config import settings
 from core.redis import get_redis
 from core.storage import delete_file, get_photo_signed_url, upload_file
+from core.telegram import send_notification
 from db.connection import get_db
 from modules.matching.runner import run_matching_for_user
-from modules.users.models import Photo, User
-from modules.users.repository import get_user_photos
+from modules.users.models import Match, Photo, User
+from modules.users.repository import get_user, get_user_photos
 
 router = APIRouter(prefix="/api/profile", tags=["profile"])
 
@@ -78,6 +79,7 @@ async def get_profile(
             "profile_text": user.profile_text,
             "onboarding_step": user.onboarding_step,
             "is_paused": user.is_paused,
+            "created_at": user.created_at.isoformat(),
         },
         photos=photo_list,
         personality=personality,
@@ -90,18 +92,59 @@ async def update_profile(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    if body.name is not None:
+    changed_fields = []
+    field_labels = {"name": "имя", "age": "возраст", "city": "город", "goal": "цель", "occupation": "занятие"}
+    if body.name is not None and body.name != user.name:
         user.name = body.name
-    if body.age is not None:
+        changed_fields.append("name")
+    if body.age is not None and body.age != user.age:
         user.age = body.age
-    if body.city is not None:
+        changed_fields.append("age")
+    if body.city is not None and body.city != user.city:
         user.city = body.city
-    if body.goal is not None:
+        changed_fields.append("city")
+    if body.goal is not None and body.goal != user.goal:
         user.goal = body.goal
-    if body.occupation is not None:
+        changed_fields.append("goal")
+    if body.occupation is not None and body.occupation != user.occupation:
         user.occupation = body.occupation
+        changed_fields.append("occupation")
     await db.commit()
+
+    # Notify match partners about profile changes (non-blocking)
+    if changed_fields:
+        asyncio.create_task(_notify_partners_of_update(user.id, user.name, changed_fields, field_labels))
+
     return {"user": {"id": user.id, "name": user.name, "city": user.city, "goal": user.goal}}
+
+
+async def _notify_partners_of_update(user_id: int, user_name: str, changed_fields: list[str], field_labels: dict) -> None:
+    from db.connection import async_session
+    from sqlalchemy import or_, select
+    try:
+        async with async_session() as db:
+            result = await db.execute(
+                select(Match).where(
+                    or_(Match.user1_id == user_id, Match.user2_id == user_id),
+                    Match.chat_status.in_(["open", "matched", "exchanged"]),
+                )
+            )
+            matches = list(result.scalars().all())
+            labels = [field_labels.get(f, f) for f in changed_fields]
+            changed_text = ", ".join(labels)
+            for m in matches:
+                partner_id = m.user2_id if m.user1_id == user_id else m.user1_id
+                partner = await db.get(User, partner_id)
+                if partner and partner.telegram_id:
+                    try:
+                        await send_notification(
+                            partner.telegram_id,
+                            f"✏️ {user_name} обновил(а) профиль: изменил(а) {changed_text}.",
+                        )
+                    except Exception:
+                        pass
+    except Exception as e:
+        logger.warning(f"Failed to notify partners of profile update: {e}")
 
 
 @router.post("/photos")

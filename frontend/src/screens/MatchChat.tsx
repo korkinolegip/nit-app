@@ -116,9 +116,17 @@ export default function MatchChat({ matchId, onBack }: MatchChatProps) {
                   {Math.round(compatScore)}%
                 </div>
               )}
+              {partner?.is_online && (
+                <div style={{ width: 7, height: 7, borderRadius: '50%', background: '#22c55e', flexShrink: 0 }} />
+              )}
             </div>
-            <div style={{ fontSize: 11, color: 'var(--d4)', marginTop: 1 }}>
-              {chatStatus === 'open' ? 'нажми чтобы открыть профиль' : chatStatus === 'closed' ? 'время истекло' : chatStatus}
+            <div style={{ fontSize: 11, color: partner?.is_online ? '#22c55e' : 'var(--d4)', marginTop: 1 }}>
+              {partner?.is_online
+                ? 'онлайн'
+                : partner?.last_seen_text
+                  ? partner.last_seen_text
+                  : chatStatus === 'open' ? 'нажми чтобы открыть профиль' : chatStatus === 'closed' ? 'время истекло' : chatStatus
+              }
             </div>
           </div>
         </div>

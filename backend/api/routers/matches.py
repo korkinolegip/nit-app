@@ -16,6 +16,28 @@ from db.connection import get_db
 from modules.users.models import DailyMatchQuota, Match, Photo, User
 from modules.users.repository import get_user
 
+
+def _is_online(last_seen: datetime | None) -> bool:
+    if not last_seen:
+        return False
+    return (datetime.now(timezone.utc) - last_seen).total_seconds() < 300
+
+
+def _last_seen_text(last_seen: datetime | None) -> str | None:
+    if not last_seen:
+        return None
+    diff = (datetime.now(timezone.utc) - last_seen).total_seconds()
+    if diff < 300:
+        return "онлайн"
+    if diff < 3600:
+        minutes = int(diff // 60)
+        return f"был(а) {minutes} мин. назад"
+    if diff < 86400:
+        hours = int(diff // 3600)
+        return f"был(а) {hours} ч. назад"
+    local_dt = last_seen.astimezone()
+    return f"был(а) {local_dt.strftime('%-d %b в %H:%M')}"
+
 logger = logging.getLogger(__name__)
 
 
@@ -147,6 +169,9 @@ async def get_matches(
                 "strengths": (partner.strengths or {}).get("items", []),
                 "ideal_partner_traits": (partner.ideal_partner_traits or {}).get("items", []),
                 "photos": photo_urls,
+                "is_online": _is_online(partner.last_seen),
+                "last_seen_text": _last_seen_text(partner.last_seen),
+                "created_at": partner.created_at.isoformat(),
             },
             "compatibility_score": m.compatibility_score,
             "explanation": m.explanation_text,

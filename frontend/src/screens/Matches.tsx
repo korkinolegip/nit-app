@@ -1,13 +1,44 @@
 import { useState, useEffect, useRef } from 'react'
 import { getMatches, matchAction, restoreSkip, Match } from '../api/matches'
+
 import Loader from '../components/Loader'
 
 interface MatchesProps {
   onBack: () => void
   onOpenChat: (matchId: number) => void
+  chatsOnly?: boolean
 }
 
-export default function Matches({ onBack, onOpenChat }: MatchesProps) {
+function daysSince(isoDate: string | undefined): number {
+  if (!isoDate) return 999
+  return Math.floor((Date.now() - new Date(isoDate).getTime()) / 86_400_000)
+}
+
+function OnlineDot({ isOnline }: { isOnline: boolean }) {
+  if (!isOnline) return null
+  return (
+    <div style={{
+      width: 8, height: 8, borderRadius: '50%',
+      background: '#22c55e', border: '2px solid var(--bg3)',
+      display: 'inline-block', marginLeft: 4, flexShrink: 0,
+    }} />
+  )
+}
+
+function NewBadge() {
+  return (
+    <span style={{
+      background: '#ff4466', color: '#fff',
+      borderRadius: 5, padding: '2px 5px',
+      fontSize: 9, fontWeight: 800, letterSpacing: '.06em',
+      lineHeight: 1.4, marginLeft: 5,
+    }}>
+      NEW
+    </span>
+  )
+}
+
+export default function Matches({ onBack, onOpenChat, chatsOnly = false }: MatchesProps) {
   const [matches, setMatches] = useState<Match[]>([])
   const [loading, setLoading] = useState(true)
   const [acting, setActing] = useState<number | null>(null)
@@ -20,9 +51,9 @@ export default function Matches({ onBack, onOpenChat }: MatchesProps) {
       .finally(() => setLoading(false))
   }, [])
 
-  const pending = matches.filter(m => m.user_action === null)
+  const pending = chatsOnly ? [] : matches.filter(m => m.user_action === null)
   const liked = matches.filter(m => m.user_action === 'like')
-  const skipped = matches.filter(m => m.user_action === 'skip' && m.restore_count < 2)
+  const skipped = chatsOnly ? [] : matches.filter(m => m.user_action === 'skip' && m.restore_count < 2)
 
   const handleRestore = async (matchId: number) => {
     setActing(matchId)
@@ -57,6 +88,7 @@ export default function Matches({ onBack, onOpenChat }: MatchesProps) {
     }
   }
 
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100dvh', background: 'var(--bg)' }}>
       {/* Header */}
@@ -74,7 +106,7 @@ export default function Matches({ onBack, onOpenChat }: MatchesProps) {
             <path d="M15 18l-6-6 6-6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
           </svg>
         </button>
-        <div style={{ fontSize: '14px', fontWeight: 600, letterSpacing: '.04em', color: 'var(--w)' }}>МАТЧИ</div>
+        <div style={{ fontSize: '14px', fontWeight: 600, letterSpacing: '.04em', color: 'var(--w)' }}>{chatsOnly ? 'ЧАТЫ' : 'МАТЧИ'}</div>
         <div style={{ width: 32 }} />
       </div>
 
@@ -138,9 +170,15 @@ export default function Matches({ onBack, onOpenChat }: MatchesProps) {
                           }
                         </div>
                         {/* Info — tap opens profile */}
-                        <div style={{ flex: 1, cursor: 'pointer' }} onClick={() => setViewingMatch(m)}>
-                          <div style={{ fontSize: 15, fontWeight: 500, color: 'var(--w)' }}>{m.user.name}, {m.user.age}</div>
-                          <div style={{ fontSize: 12, color: 'var(--d3)', marginTop: 2 }}>{m.user.city}</div>
+                        <div style={{ flex: 1, cursor: 'pointer', minWidth: 0 }} onClick={() => setViewingMatch(m)}>
+                          <div style={{ fontSize: 15, fontWeight: 500, color: 'var(--w)', display: 'flex', alignItems: 'center' }}>
+                            {m.user.name}, {m.user.age}
+                            {daysSince(m.user.created_at) < 2 && <NewBadge />}
+                            <OnlineDot isOnline={m.user.is_online} />
+                          </div>
+                          <div style={{ fontSize: 12, color: 'var(--d3)', marginTop: 2 }}>
+                            {m.user.is_online ? <span style={{ color: '#22c55e' }}>онлайн</span> : m.user.city}
+                          </div>
                         </div>
                         {/* Score */}
                         <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--d2)', marginRight: 4 }}>
@@ -276,6 +314,29 @@ function MatchCard({ match: m, acting, onAction, onViewProfile }: {
         }}>
           {Math.round(m.compatibility_score)}%
         </div>
+        {/* NEW badge */}
+        {daysSince(m.user.created_at) < 2 && (
+          <div style={{
+            position: 'absolute', top: 12, left: 12,
+            background: '#ff4466', color: '#fff',
+            borderRadius: 8, padding: '4px 8px',
+            fontSize: 10, fontWeight: 800, letterSpacing: '.06em',
+          }}>
+            NEW
+          </div>
+        )}
+        {/* Online indicator */}
+        {m.user.is_online && (
+          <div style={{
+            position: 'absolute', bottom: 10, left: 12,
+            background: 'rgba(0,0,0,.6)', borderRadius: 20,
+            padding: '3px 8px', fontSize: 11, color: '#4ade80',
+            display: 'flex', alignItems: 'center', gap: 5,
+          }}>
+            <div style={{ width: 6, height: 6, borderRadius: '50%', background: '#22c55e' }} />
+            онлайн
+          </div>
+        )}
         {/* Profile hint */}
         <div style={{
           position: 'absolute', bottom: 10, right: 12,
@@ -292,11 +353,17 @@ function MatchCard({ match: m, acting, onAction, onViewProfile }: {
 
       {/* Info — tappable to open profile */}
       <div style={{ padding: '14px 16px', cursor: 'pointer' }} onClick={onViewProfile}>
-        <div style={{ fontSize: 18, fontWeight: 600, color: 'var(--w)', marginBottom: 2 }}>
+        <div style={{ fontSize: 18, fontWeight: 600, color: 'var(--w)', marginBottom: 2, display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 6 }}>
           {m.user.name}, {m.user.age}
+          {daysSince(m.user.created_at) < 2 && <NewBadge />}
         </div>
         <div style={{ fontSize: 13, color: 'var(--d3)', marginBottom: m.explanation ? 10 : 0 }}>
           {m.user.city}
+          {daysSince(m.user.created_at) >= 2 && (
+            <span style={{ color: 'var(--d4)', marginLeft: 8, fontSize: 11 }}>
+              С нами {daysSince(m.user.created_at)} дн.
+            </span>
+          )}
         </div>
         {m.explanation && (
           <div style={{ fontSize: 13, color: 'var(--d2)', lineHeight: 1.6, marginBottom: 4, fontStyle: 'italic' }}>

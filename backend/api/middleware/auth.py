@@ -1,3 +1,4 @@
+import asyncio
 import hashlib
 import hmac
 import json
@@ -65,6 +66,18 @@ def verify_token(token: str) -> int:
         raise HTTPException(401, "Invalid token") from e
 
 
+async def _update_last_seen(user_id: int) -> None:
+    from db.connection import async_session
+    try:
+        async with async_session() as db:
+            user = await get_user(db, user_id)
+            if user:
+                user.last_seen = datetime.now(timezone.utc)
+                await db.commit()
+    except Exception:
+        pass
+
+
 async def get_current_user(
     authorization: str = Header(...),
     db: AsyncSession = Depends(get_db),
@@ -80,5 +93,10 @@ async def get_current_user(
         raise HTTPException(401, "User not found")
     if user.is_banned:
         raise HTTPException(403, "User is banned")
+
+    # Update last_seen in background (non-blocking, at most meaningful frequency)
+    now = datetime.now(timezone.utc)
+    if user.last_seen is None or (now - user.last_seen).total_seconds() > 60:
+        asyncio.create_task(_update_last_seen(user_id))
 
     return user

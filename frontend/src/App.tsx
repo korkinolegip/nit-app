@@ -6,10 +6,19 @@ import MatchChat from './screens/MatchChat'
 import Discovery from './screens/Discovery'
 import Profile from './screens/Profile'
 import Matches from './screens/Matches'
+import ProfileViews from './screens/ProfileViews'
 import { initAuth } from './api/client'
 import { getChatStatus } from './api/chat'
+import { getMatches } from './api/matches'
+import { getViewsCount } from './api/views'
 
-type Screen = 'welcome' | 'chat' | 'matchChat' | 'discovery' | 'matches' | 'profile'
+type Screen = 'welcome' | 'chat' | 'matchChat' | 'discovery' | 'matches' | 'chats' | 'views' | 'profile'
+
+interface Badges {
+  matches: number
+  chats: number
+  views: number
+}
 
 export default function App() {
   const [screen, setScreen] = useState<Screen | null>(null)
@@ -17,6 +26,7 @@ export default function App() {
   const [isReturning, setIsReturning] = useState(false)
   const [sessionComplete, setSessionComplete] = useState(false)
   const [hasPhotos, setHasPhotos] = useState(false)
+  const [badges, setBadges] = useState<Badges>({ matches: 0, chats: 0, views: 0 })
 
   useEffect(() => {
     const tg = (window as any).Telegram?.WebApp
@@ -25,7 +35,6 @@ export default function App() {
       tg.ready()
     }
 
-    // Silent warmup ping to prevent cold-start issues on Render
     fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/health`).catch(() => {})
 
     initAuth()
@@ -45,6 +54,29 @@ export default function App() {
       })
   }, [])
 
+  // Fetch badge counts when app is active
+  useEffect(() => {
+    if (!screen || screen === 'welcome') return
+
+    const fetchBadges = async () => {
+      try {
+        const [matchesData, viewsData] = await Promise.all([
+          getMatches(0),
+          getViewsCount(),
+        ])
+        const pending = matchesData.matches.filter(m => m.user_action === null).length
+        const openChats = matchesData.matches.filter(m => m.user_action === 'like').length
+        setBadges({ matches: pending, chats: openChats, views: viewsData.count })
+      } catch {
+        // ignore
+      }
+    }
+
+    fetchBadges()
+    const interval = setInterval(fetchBadges, 30_000)
+    return () => clearInterval(interval)
+  }, [screen])
+
   const openChat = () => setScreen('chat')
   const openMatchChat = (id: number) => {
     setMatchId(id)
@@ -60,8 +92,6 @@ export default function App() {
     return <Welcome onStart={openChat} />
   }
 
-  // Keep Chat always mounted to preserve message history.
-  // Other screens render on top as overlays.
   return (
     <>
       <div style={{
@@ -74,6 +104,7 @@ export default function App() {
           isReturning={isReturning}
           sessionComplete={sessionComplete}
           hasPhotos={hasPhotos}
+          badges={badges}
         />
       </div>
 
@@ -83,6 +114,8 @@ export default function App() {
       {screen === 'discovery' && <Discovery onBack={backToChat} onOpenChat={openMatchChat} />}
       {screen === 'profile' && <Profile onBack={backToChat} />}
       {screen === 'matches' && <Matches onBack={backToChat} onOpenChat={openMatchChat} />}
+      {screen === 'chats' && <Matches onBack={backToChat} onOpenChat={openMatchChat} chatsOnly />}
+      {screen === 'views' && <ProfileViews onBack={backToChat} />}
     </>
   )
 }

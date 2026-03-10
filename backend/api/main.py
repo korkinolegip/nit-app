@@ -4,7 +4,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 
-from api.routers import admin, auth, chat, feedback, match_chat, matches, profile, voice
+from api.routers import admin, auth, chat, feedback, match_chat, matches, profile, views, voice
 from core.config import settings
 from core.redis import close_redis
 from db.connection import engine
@@ -20,12 +20,21 @@ async def lifespan(app: FastAPI):
     global _bot, _dp
 
     # Safe schema migrations (idempotent)
+    import sqlalchemy as _sa
     async with engine.begin() as conn:
-        await conn.execute(
-            __import__("sqlalchemy").text(
-                "ALTER TABLE users ADD COLUMN IF NOT EXISTS occupation VARCHAR(100)"
+        await conn.execute(_sa.text("ALTER TABLE users ADD COLUMN IF NOT EXISTS occupation VARCHAR(100)"))
+        await conn.execute(_sa.text("ALTER TABLE users ADD COLUMN IF NOT EXISTS last_seen TIMESTAMPTZ"))
+        await conn.execute(_sa.text("""
+            CREATE TABLE IF NOT EXISTS profile_views (
+                id SERIAL PRIMARY KEY,
+                viewer_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                viewed_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                duration_seconds SMALLINT,
+                seen_at TIMESTAMPTZ NOT NULL DEFAULT now()
             )
-        )
+        """))
+        await conn.execute(_sa.text("CREATE INDEX IF NOT EXISTS idx_profile_views_viewed_id ON profile_views (viewed_id, seen_at DESC)"))
+        await conn.execute(_sa.text("CREATE INDEX IF NOT EXISTS idx_profile_views_viewer_id ON profile_views (viewer_id, seen_at DESC)"))
 
     # Set up Telegram bot webhook inside FastAPI
     if settings.BOT_TOKEN:
@@ -80,6 +89,7 @@ app.include_router(voice.router)
 app.include_router(profile.router)
 app.include_router(matches.router)
 app.include_router(match_chat.router)
+app.include_router(views.router)
 app.include_router(feedback.router)
 app.include_router(admin.router)
 
