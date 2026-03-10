@@ -1,4 +1,4 @@
-import { Composition } from 'remotion'
+import { Composition, registerRoot } from 'remotion'
 import { NitDemo } from './NitDemo'
 
 export const RemotionRoot = () => {
@@ -13,3 +13,5 @@ export const RemotionRoot = () => {
     />
   )
 }
+
+registerRoot(RemotionRoot)
