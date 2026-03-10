@@ -22,9 +22,10 @@ interface MessageRowProps {
   onUploadPhoto?: () => void
   onViewCard?: (card: CardItem) => void
   onOpenMatch?: (matchId: number) => void
+  onNavigate?: (screen: string) => void
 }
 
-export default function MessageRow({ message, onConfirmPortrait, onEditPortrait, onUploadPhoto, onViewCard }: MessageRowProps) {
+export default function MessageRow({ message, onConfirmPortrait, onEditPortrait, onUploadPhoto, onViewCard, onNavigate }: MessageRowProps) {
   const isAI = message.sender === 'ai'
 
   return (
@@ -84,6 +85,87 @@ export default function MessageRow({ message, onConfirmPortrait, onEditPortrait,
             >
               <span>📷</span> Добавить фото
             </button>
+          </div>
+        ) : message.type === 'activity_summary' && message.cardData ? (
+          <div style={{
+            background: 'var(--bg3)', border: '1px solid var(--l)',
+            borderRadius: '16px', borderBottomLeftRadius: '4px', overflow: 'hidden',
+          }}>
+            <div style={{ padding: '14px 16px 12px', fontSize: '15px', lineHeight: 1.65, fontWeight: 300, color: 'var(--d1)' }}>
+              {message.text}
+            </div>
+            {/* Counts row */}
+            <div style={{ display: 'flex', borderTop: '1px solid var(--l)', borderBottom: '1px solid var(--l)' }}>
+              {[
+                { label: 'Матчи', value: message.cardData.new_matches, screen: 'matches' },
+                { label: 'Сообщения', value: message.cardData.new_messages, screen: 'chats' },
+                { label: 'Просмотры', value: message.cardData.new_views, screen: 'views' },
+              ].map((item, i) => (
+                <div
+                  key={i}
+                  onClick={() => item.value > 0 && onNavigate?.(item.screen)}
+                  style={{
+                    flex: 1, padding: '12px 8px', textAlign: 'center',
+                    borderRight: i < 2 ? '1px solid var(--l)' : 'none',
+                    cursor: item.value > 0 ? 'pointer' : 'default',
+                  }}
+                >
+                  <div style={{ fontSize: 20, fontWeight: 700, color: item.value > 0 ? 'var(--w)' : 'var(--d4)' }}>
+                    {item.value}
+                  </div>
+                  <div style={{ fontSize: 10, color: 'var(--d4)', marginTop: 2 }}>{item.label}</div>
+                </div>
+              ))}
+            </div>
+            {/* Nav buttons */}
+            <div style={{ display: 'flex', gap: 8, padding: '10px 12px' }}>
+              {message.cardData.new_matches > 0 && (
+                <button onClick={() => onNavigate?.('matches')} style={{
+                  flex: 1, padding: '9px 8px', background: 'var(--w)', border: 'none',
+                  borderRadius: 10, color: 'var(--bg)', fontSize: 12, fontWeight: 600,
+                  cursor: 'pointer', fontFamily: 'Inter',
+                }}>Матчи</button>
+              )}
+              {message.cardData.new_messages > 0 && (
+                <button onClick={() => onNavigate?.('chats')} style={{
+                  flex: 1, padding: '9px 8px', background: 'var(--w)', border: 'none',
+                  borderRadius: 10, color: 'var(--bg)', fontSize: 12, fontWeight: 600,
+                  cursor: 'pointer', fontFamily: 'Inter',
+                }}>Чаты</button>
+              )}
+              {message.cardData.new_views > 0 && (
+                <button onClick={() => onNavigate?.('views')} style={{
+                  flex: 1, padding: '9px 8px', background: 'none', border: '1px solid var(--l)',
+                  borderRadius: 10, color: 'var(--d2)', fontSize: 12, fontWeight: 600,
+                  cursor: 'pointer', fontFamily: 'Inter',
+                }}>Просмотры</button>
+              )}
+            </div>
+          </div>
+        ) : message.type === 'action_buttons' && message.actionButtons ? (
+          <div>
+            <div style={{
+              fontSize: '15px', lineHeight: 1.65, fontWeight: 300, color: 'var(--d1)',
+              padding: '12px 16px', borderRadius: '16px', background: 'var(--bg3)',
+              border: '1px solid var(--l)', borderBottomLeftRadius: '4px', marginBottom: '10px',
+            }}>
+              {message.text}
+            </div>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+              {message.actionButtons.map((btn, i) => (
+                <button
+                  key={i}
+                  onClick={() => onNavigate?.(btn.screen)}
+                  style={{
+                    padding: '9px 16px', background: 'var(--bg3)', border: '1px solid var(--l)',
+                    borderRadius: 10, color: 'var(--d1)', fontSize: 13, fontWeight: 500,
+                    cursor: 'pointer', fontFamily: 'Inter',
+                  }}
+                >
+                  {btn.label}
+                </button>
+              ))}
+            </div>
           </div>
         ) : message.type === 'user_cards' && message.cardData?.cards ? (
           <div style={{ width: '100%' }}>

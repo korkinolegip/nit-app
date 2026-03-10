@@ -1,6 +1,7 @@
 import asyncio
 import json
 import logging
+from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel
@@ -12,7 +13,7 @@ from api.middleware.input_sanitizer import sanitize_user_message
 from db.connection import get_db
 from modules.ai.interviewer import process_interview_turn, process_post_onboarding_turn
 from modules.ai.safety import check_message_safety
-from modules.users.models import Answer, Match, Photo, User
+from modules.users.models import Answer, Match, MatchMessage, Photo, ProfileView, User
 from modules.users.repository import (
     create_interview_session,
     get_interview_session,
@@ -24,15 +25,25 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/chat", tags=["chat"])
 
 _MATCHES_KW = ["добавь в матч", "добавить в матч", "в матчи", "написать ему", "написать ей",
-               "открой матч", "перейти в матч", "перейди в матч", "хочу написать"]
+               "открой матч", "перейти в матч", "перейди в матч", "хочу написать", "мои матчи"]
 _DISCOVERY_KW = ["добавь в люди", "добавить в люди", "открой люди", "открыть людей",
                  "в список люди", "перейди в люди", "перейти в люди"]
 _FIND_KW = ["найди", "найти", "покажи", "есть ли", "кто есть", "посмотри людей",
             "подходящих", "кто подходит", "покажи профиль", "профиль"]
+_CHATS_KW = ["мои чаты", "открой чаты", "перейди в чаты", "новые сообщения", "есть сообщения",
+             "кто написал", "открой переписку", "посмотреть сообщения"]
+_VIEWS_KW = ["кто смотрел", "кто меня смотрел", "просмотры", "открой просмотры",
+             "смотрели мой профиль", "кто заходил", "посмотреть просмотры"]
 
 
 def _detect_action(text: str) -> str | None:
     t = text.lower()
+    for kw in _CHATS_KW:
+        if kw in t:
+            return "go_to_chats"
+    for kw in _VIEWS_KW:
+        if kw in t:
+            return "go_to_views"
     for kw in _MATCHES_KW:
         if kw in t:
             return "go_to_matches"
@@ -130,6 +141,81 @@ async def get_chat_status(
     )
 
 
+@router.post("/ping")
+async def ping(
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Heartbeat: keep last_seen fresh while user is in the app."""
+    user.last_seen = datetime.now(timezone.utc)
+    await db.commit()
+    return {"ok": True}
+
+
+@router.get("/activity")
+async def get_activity_summary(
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Return counts of new events since user was last away (> 5 min)."""
+    now = datetime.now(timezone.utc)
+
+    # Reference point: last time user was "away" (more than 5 min ago)
+    # If last_seen is recent (within 10 min), use 10 min ago as cutoff
+    if user.last_seen and (now - user.last_seen).total_seconds() < 600:
+        since = now - timedelta(minutes=10)
+    else:
+        since = (user.last_seen or (now - timedelta(hours=24)))
+
+    # New pending matches created since cutoff
+    matches_result = await db.execute(
+        select(Match).where(
+            or_(Match.user1_id == user.id, Match.user2_id == user.id),
+            Match.created_at > since,
+        )
+    )
+    new_matches = len(list(matches_result.scalars().all()))
+
+    # Open chats with unread messages (messages from partner newer than cutoff)
+    open_matches_result = await db.execute(
+        select(Match).where(
+            or_(Match.user1_id == user.id, Match.user2_id == user.id),
+            Match.chat_status.in_(["open", "matched", "exchanged"]),
+        )
+    )
+    open_matches = list(open_matches_result.scalars().all())
+
+    new_messages = 0
+    for m in open_matches:
+        partner_id = m.user2_id if m.user1_id == user.id else m.user1_id
+        msgs_result = await db.execute(
+            select(MatchMessage).where(
+                MatchMessage.match_id == m.id,
+                MatchMessage.sender_id == partner_id,
+                MatchMessage.created_at > since,
+            ).limit(1)
+        )
+        if msgs_result.scalar_one_or_none():
+            new_messages += 1
+
+    # New profile views since cutoff
+    views_result = await db.execute(
+        select(ProfileView).where(
+            ProfileView.viewed_id == user.id,
+            ProfileView.seen_at > since,
+        )
+    )
+    new_views = len(list(views_result.scalars().all()))
+
+    return {
+        "new_matches": new_matches,
+        "new_messages": new_messages,
+        "new_views": new_views,
+        "open_chats": len(open_matches),
+        "has_activity": (new_matches + new_messages + new_views) > 0,
+    }
+
+
 @router.post("/message", response_model=ChatMessageResponse)
 async def send_message(
     body: ChatMessageRequest,
@@ -205,6 +291,10 @@ async def send_message(
             reply_type = "navigate_discovery"
         elif action == "go_to_profile":
             reply_type = "navigate_profile"
+        elif action == "go_to_chats":
+            reply_type = "navigate_chats"
+        elif action == "go_to_views":
+            reply_type = "navigate_views"
         elif result.get("wants_photo_upload"):
             reply_type = "photo_prompt"
 

@@ -43,6 +43,7 @@ export default function Matches({ onBack, onOpenChat, chatsOnly = false }: Match
   const [loading, setLoading] = useState(true)
   const [acting, setActing] = useState<number | null>(null)
   const [viewingMatch, setViewingMatch] = useState<Match | null>(null)
+  const profileOpenTimeRef = useRef<number>(0)
 
   useEffect(() => {
     getMatches()
@@ -62,7 +63,7 @@ export default function Matches({ onBack, onOpenChat, chatsOnly = false }: Match
       setMatches(prev => prev.map(m =>
         m.match_id === matchId ? { ...m, user_action: null, restore_count: m.restore_count + 1 } : m
       ))
-      setViewingMatch(null)
+      closeProfile()
     } catch {
       // ignore
     } finally {
@@ -77,7 +78,7 @@ export default function Matches({ onBack, onOpenChat, chatsOnly = false }: Match
       setMatches(prev => prev.map(m =>
         m.match_id === matchId ? { ...m, user_action: action } : m
       ))
-      setViewingMatch(null)
+      closeProfile()
       if (res.mutual_match && res.match_chat_id) {
         onOpenChat(res.match_chat_id)
       }
@@ -90,8 +91,20 @@ export default function Matches({ onBack, onOpenChat, chatsOnly = false }: Match
 
 
   const openProfile = (m: Match) => {
-    openProfile(m)
+    profileOpenTimeRef.current = Date.now()
     recordProfileView(m.partner_user_id).catch(() => {})
+    setViewingMatch(m)
+  }
+
+  const closeProfile = () => {
+    if (viewingMatch && profileOpenTimeRef.current > 0) {
+      const durationSecs = Math.round((Date.now() - profileOpenTimeRef.current) / 1000)
+      if (durationSecs >= 1) {
+        recordProfileView(viewingMatch.partner_user_id, durationSecs).catch(() => {})
+      }
+      profileOpenTimeRef.current = 0
+    }
+    setViewingMatch(null)
   }
 
   return (
@@ -266,7 +279,7 @@ export default function Matches({ onBack, onOpenChat, chatsOnly = false }: Match
         <MatchProfileModal
           match={viewingMatch}
           acting={acting === viewingMatch.match_id}
-          onClose={() => setViewingMatch(null)}
+          onClose={closeProfile}
           onAction={viewingMatch.user_action === null
             ? (action) => handleAction(viewingMatch.match_id, action)
             : undefined
@@ -276,7 +289,7 @@ export default function Matches({ onBack, onOpenChat, chatsOnly = false }: Match
             : undefined
           }
           onOpenChat={viewingMatch.user_action === 'like'
-            ? () => { setViewingMatch(null); onOpenChat(viewingMatch.match_id) }
+            ? () => { closeProfile(); onOpenChat(viewingMatch.match_id) }
             : undefined
           }
         />

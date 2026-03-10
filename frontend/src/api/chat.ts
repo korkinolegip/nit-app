@@ -33,6 +33,22 @@ export async function getChatHistory(): Promise<{ messages: { sender: 'ai' | 'me
   return apiRequest('/api/chat/history')
 }
 
+export async function pingActivity(): Promise<void> {
+  return apiRequest('/api/chat/ping', { method: 'POST' })
+}
+
+export interface ActivitySummary {
+  new_matches: number
+  new_messages: number
+  new_views: number
+  open_chats: number
+  has_activity: boolean
+}
+
+export async function getActivitySummary(): Promise<ActivitySummary> {
+  return apiRequest('/api/chat/activity')
+}
+
 export async function transcribeVoice(file: Blob): Promise<{ text: string; duration_seconds: number }> {
   const ext = file.type.includes('mp4') ? 'audio.mp4' : file.type.includes('ogg') ? 'audio.ogg' : 'audio.webm'
   const formData = new FormData()

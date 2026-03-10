@@ -5,7 +5,7 @@ import QuickReplies from '../components/QuickReplies'
 import InputBar from '../components/InputBar'
 import SettingsSheet from '../components/SettingsSheet'
 import MenuSheet from '../components/MenuSheet'
-import { transcribeVoice, getChatHistory } from '../api/chat'
+import { transcribeVoice, getChatHistory, pingActivity, getActivitySummary } from '../api/chat'
 import { uploadPhoto } from '../api/profile'
 
 interface CardItem {
@@ -37,6 +37,14 @@ export default function Chat({ onOpenMatch, onNavigateTo, isReturning = false, s
   const [isNavOpen, setIsNavOpen] = useState(false)
   const [viewingCard, setViewingCard] = useState<CardItem | null>(null)
 
+  // Heartbeat — keep last_seen fresh while app is open
+  useEffect(() => {
+    if (!isReturning) return
+    pingActivity().catch(() => {})
+    const interval = setInterval(() => pingActivity().catch(() => {}), 120_000)
+    return () => clearInterval(interval)
+  }, [isReturning])
+
   // Initial greeting / history restore
   useEffect(() => {
     if (isReturning) {
@@ -64,6 +72,32 @@ export default function Chat({ onOpenMatch, onNavigateTo, isReturning = false, s
             } else {
               addMessage({ sender: 'ai', text: 'Продолжим? Расскажи о себе — что ещё хочешь добавить.', type: 'text' })
             }
+          }
+          // Show activity summary if returning with a complete profile
+          if (sessionComplete) {
+            getActivitySummary().then(activity => {
+              if (activity.has_activity) {
+                const parts: string[] = []
+                if (activity.new_matches > 0) parts.push(`${activity.new_matches} новых матчей`)
+                if (activity.new_messages > 0) parts.push(`${activity.new_messages} непрочитанных сообщений`)
+                if (activity.new_views > 0) parts.push(`${activity.new_views} просмотров профиля`)
+                const summary = parts.length > 0
+                  ? `Пока тебя не было: ${parts.join(', ')}.`
+                  : 'Есть новое активность — загляни в разделы.'
+                setTimeout(() => {
+                  addMessage({
+                    sender: 'ai',
+                    text: summary,
+                    type: 'activity_summary',
+                    cardData: {
+                      new_matches: activity.new_matches,
+                      new_messages: activity.new_messages,
+                      new_views: activity.new_views,
+                    },
+                  })
+                }, 800)
+              }
+            }).catch(() => {})
           }
         })
         .catch(() => {
@@ -242,6 +276,7 @@ export default function Chat({ onOpenMatch, onNavigateTo, isReturning = false, s
             onUploadPhoto={() => fileInputRef.current?.click()}
             onViewCard={(card) => setViewingCard(card)}
             onOpenMatch={onOpenMatch}
+            onNavigate={(screen) => onNavigateTo(screen as any)}
           />
         ))}
 

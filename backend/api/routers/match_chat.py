@@ -74,12 +74,19 @@ async def get_messages(
     partner_id = match.user2_id if match.user1_id == user.id else match.user1_id
     partner = await get_user(db, partner_id)
 
-    # Record profile view (opening chat = viewing partner profile)
+    # Record profile view (opening chat = viewing partner profile) + notify
     try:
         from modules.users.models import ProfileView
+        from core.telegram import send_notification
         view = ProfileView(viewer_id=user.id, viewed_id=partner_id)
         db.add(view)
-        # Don't await commit yet — will happen below
+        # Notify the viewed user (non-blocking)
+        if partner and partner.telegram_id:
+            import asyncio as _aio
+            _aio.create_task(send_notification(
+                partner.telegram_id,
+                f"👁 {user.name} просмотрел(а) твой профиль — загляни в приложение.",
+            ))
     except Exception:
         pass
 
