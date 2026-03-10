@@ -58,6 +58,7 @@ export interface MatchPartnerProfile {
 }
 
 export interface MatchChatData {
+  my_user_id: number
   messages: {
     id: number
     sender_id: number
