@@ -146,6 +146,19 @@ export default function MatchChat({ matchId, onBack }: MatchChatProps) {
         background: 'var(--bg)',
       }}>
         {messages.map(msg => {
+          if (msg.content_type === 'system') {
+            return (
+              <div key={msg.id} style={{ display: 'flex', justifyContent: 'center', padding: '4px 0' }}>
+                <div style={{
+                  fontSize: 11, color: 'var(--d4)', background: 'var(--bg3)',
+                  border: '1px solid var(--l)', borderRadius: 20,
+                  padding: '4px 12px', textAlign: 'center',
+                }}>
+                  {msg.text}
+                </div>
+              </div>
+            )
+          }
           const isMe = myUserId !== null ? msg.sender_id === myUserId : false
           return (
             <div key={msg.id} style={{

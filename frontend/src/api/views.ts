@@ -11,6 +11,7 @@ export interface ProfileViewer {
   last_seen_text: string | null
   duration_seconds: number | null
   seen_at: string
+  match_id?: number | null
 }
 
 export interface ViewsResponse {
@@ -28,6 +29,10 @@ export async function getIViewed(): Promise<ViewsResponse> {
 
 export async function getViewsCount(): Promise<{ count: number }> {
   return apiRequest('/api/views/count')
+}
+
+export async function markViewsSeen(): Promise<void> {
+  return apiRequest('/api/views/mark-seen', { method: 'POST' })
 }
 
 export async function recordProfileView(userId: number, durationSeconds?: number): Promise<void> {

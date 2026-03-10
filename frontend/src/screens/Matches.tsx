@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
-import { getMatches, matchAction, restoreSkip, Match } from '../api/matches'
+import { getMatches, matchAction, restoreSkip, deleteMatchChat, Match } from '../api/matches'
 import { recordProfileView } from '../api/views'
 import Loader from '../components/Loader'
 
@@ -55,6 +55,15 @@ export default function Matches({ onBack, onOpenChat, chatsOnly = false }: Match
   const pending = chatsOnly ? [] : matches.filter(m => m.user_action === null)
   const liked = matches.filter(m => m.user_action === 'like')
   const skipped = chatsOnly ? [] : matches.filter(m => m.user_action === 'skip' && m.restore_count < 2)
+
+  const handleDeleteChat = async (matchId: number) => {
+    setMatches(prev => prev.filter(m => m.match_id !== matchId))
+    try {
+      await deleteMatchChat(matchId)
+    } catch {
+      // ignore
+    }
+  }
 
   const handleRestore = async (matchId: number) => {
     setActing(matchId)
@@ -179,31 +188,48 @@ export default function Matches({ onBack, onOpenChat, chatsOnly = false }: Match
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                   {liked.map(m => {
                     const photo = m.user.photos.find(p => p.is_primary) || m.user.photos[0]
+                    const isNew = daysSince(m.user.created_at) < 2
                     return (
                       <div key={m.match_id} style={{
-                        background: 'var(--bg3)', border: '1px solid var(--l)', borderRadius: 14,
+                        background: 'var(--bg3)', border: `1px solid ${m.has_unread ? 'rgba(255,255,255,.15)' : 'var(--l)'}`, borderRadius: 14,
                         padding: '14px 16px', display: 'flex', alignItems: 'center', gap: 12,
                       }}>
                         {/* Avatar — tap opens profile */}
                         <div
                           onClick={() => openProfile(m)}
                           style={{
-                            width: 44, height: 44, borderRadius: 12, background: 'var(--bg)',
+                            position: 'relative', width: 44, height: 44, borderRadius: 12, background: 'var(--bg)',
                             border: '1px solid var(--l)', display: 'flex', alignItems: 'center', justifyContent: 'center',
-                            fontSize: 18, flexShrink: 0, overflow: 'hidden', cursor: 'pointer',
+                            fontSize: 18, flexShrink: 0, overflow: 'visible', cursor: 'pointer',
                           }}
                         >
-                          {photo?.url
-                            ? <img src={photo.url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                            : m.user.name[0]
-                          }
+                          <div style={{ width: '100%', height: '100%', borderRadius: 12, overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                            {photo?.url
+                              ? <img src={photo.url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                              : m.user.name[0]
+                            }
+                          </div>
+                          {isNew && (
+                            <div style={{
+                              position: 'absolute', top: -5, right: -5,
+                              background: '#ff4466', color: '#fff',
+                              borderRadius: 4, padding: '1px 4px',
+                              fontSize: 8, fontWeight: 800, letterSpacing: '.06em',
+                              lineHeight: '12px', zIndex: 1,
+                            }}>NEW</div>
+                          )}
+                          {m.user.is_online && (
+                            <div style={{
+                              position: 'absolute', bottom: -2, right: -2,
+                              width: 10, height: 10, borderRadius: '50%',
+                              background: '#22c55e', border: '2px solid var(--bg3)', zIndex: 1,
+                            }} />
+                          )}
                         </div>
                         {/* Info — tap opens profile */}
                         <div style={{ flex: 1, cursor: 'pointer', minWidth: 0 }} onClick={() => openProfile(m)}>
-                          <div style={{ fontSize: 15, fontWeight: 500, color: 'var(--w)', display: 'flex', alignItems: 'center' }}>
+                          <div style={{ fontSize: 15, fontWeight: m.has_unread ? 600 : 500, color: 'var(--w)', display: 'flex', alignItems: 'center' }}>
                             {m.user.name}, {m.user.age}
-                            {daysSince(m.user.created_at) < 2 && <NewBadge />}
-                            <OnlineDot isOnline={m.user.is_online} />
                           </div>
                           <div style={{ fontSize: 12, color: 'var(--d3)', marginTop: 2 }}>
                             {m.user.is_online ? <span style={{ color: '#22c55e' }}>онлайн</span> : m.user.city}
@@ -217,13 +243,27 @@ export default function Matches({ onBack, onOpenChat, chatsOnly = false }: Match
                         <button
                           onClick={() => onOpenChat(m.match_id)}
                           style={{
-                            padding: '8px 14px', background: 'var(--w)',
-                            border: 'none', borderRadius: 10,
-                            color: 'var(--bg)', fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: 'Inter',
+                            padding: '8px 14px', background: m.has_unread ? 'var(--w)' : 'var(--bg)',
+                            border: m.has_unread ? 'none' : '1px solid var(--l)', borderRadius: 10,
+                            color: m.has_unread ? 'var(--bg)' : 'var(--d2)', fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: 'Inter',
                           }}
                         >
                           Чат
                         </button>
+                        {/* Delete button (chats mode only) */}
+                        {chatsOnly && (
+                          <button
+                            onClick={(e) => { e.stopPropagation(); handleDeleteChat(m.match_id) }}
+                            style={{
+                              padding: '8px', background: 'none', border: 'none',
+                              cursor: 'pointer', color: 'var(--d4)', display: 'flex', alignItems: 'center',
+                            }}
+                          >
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
+                              <path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                            </svg>
+                          </button>
+                        )}
                       </div>
                     )
                   })}
@@ -384,7 +424,6 @@ function MatchCard({ match: m, acting, onAction, onViewProfile }: {
       <div style={{ padding: '14px 16px', cursor: 'pointer' }} onClick={onViewProfile}>
         <div style={{ fontSize: 18, fontWeight: 600, color: 'var(--w)', marginBottom: 2, display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 6 }}>
           {m.user.name}, {m.user.age}
-          {daysSince(m.user.created_at) < 2 && <NewBadge />}
         </div>
         <div style={{ fontSize: 13, color: 'var(--d3)', marginBottom: m.explanation ? 10 : 0 }}>
           {m.user.city}

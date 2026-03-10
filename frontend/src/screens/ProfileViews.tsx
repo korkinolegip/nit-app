@@ -1,9 +1,10 @@
 import { useState, useEffect } from 'react'
-import { getMyViewers, getIViewed, ProfileViewer } from '../api/views'
+import { getMyViewers, getIViewed, markViewsSeen, ProfileViewer } from '../api/views'
 import Loader from '../components/Loader'
 
 interface ProfileViewsProps {
   onBack: () => void
+  onOpenMatch?: (matchId: number) => void
 }
 
 type Tab = 'viewers' | 'viewed'
@@ -28,7 +29,7 @@ function formatDuration(sec: number | null): string | null {
   return `${Math.round(sec / 60)} мин`
 }
 
-export default function ProfileViews({ onBack }: ProfileViewsProps) {
+export default function ProfileViews({ onBack, onOpenMatch }: ProfileViewsProps) {
   const [tab, setTab] = useState<Tab>('viewers')
   const [viewers, setViewers] = useState<ProfileViewer[]>([])
   const [viewed, setViewed] = useState<ProfileViewer[]>([])
@@ -48,6 +49,7 @@ export default function ProfileViews({ onBack }: ProfileViewsProps) {
       }
     }
     load()
+    markViewsSeen().catch(() => {})
   }, [])
 
   const currentList = tab === 'viewers' ? viewers : viewed
@@ -119,7 +121,11 @@ export default function ProfileViews({ onBack }: ProfileViewsProps) {
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
             {currentList.map(item => (
-              <ViewerCard key={item.view_id} item={item} />
+              <ViewerCard
+                key={item.view_id}
+                item={item}
+                onOpenMatch={onOpenMatch}
+              />
             ))}
           </div>
         )}
@@ -128,14 +134,19 @@ export default function ProfileViews({ onBack }: ProfileViewsProps) {
   )
 }
 
-function ViewerCard({ item }: { item: ProfileViewer }) {
+function ViewerCard({ item, onOpenMatch }: { item: ProfileViewer; onOpenMatch?: (matchId: number) => void }) {
   const durationText = formatDuration(item.duration_seconds)
+  const clickable = !!item.match_id && !!onOpenMatch
 
   return (
-    <div style={{
-      background: 'var(--bg3)', border: '1px solid var(--l)', borderRadius: 14,
-      padding: '14px 16px', display: 'flex', alignItems: 'center', gap: 12,
-    }}>
+    <div
+      onClick={() => clickable && onOpenMatch!(item.match_id!)}
+      style={{
+        background: 'var(--bg3)', border: '1px solid var(--l)', borderRadius: 14,
+        padding: '14px 16px', display: 'flex', alignItems: 'center', gap: 12,
+        cursor: clickable ? 'pointer' : 'default',
+      }}
+    >
       {/* Avatar */}
       <div style={{ position: 'relative', flexShrink: 0 }}>
         <div style={{
@@ -179,9 +190,16 @@ function ViewerCard({ item }: { item: ProfileViewer }) {
         )}
       </div>
 
-      {/* Time */}
-      <div style={{ fontSize: 11, color: 'var(--d4)', flexShrink: 0, textAlign: 'right' }}>
-        {formatDate(item.seen_at)}
+      {/* Right side */}
+      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 6, flexShrink: 0 }}>
+        <div style={{ fontSize: 11, color: 'var(--d4)', textAlign: 'right' }}>
+          {formatDate(item.seen_at)}
+        </div>
+        {clickable && (
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" style={{ color: 'var(--d3)' }}>
+            <path d="M9 18l6-6-6-6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+          </svg>
+        )}
       </div>
     </div>
   )

@@ -58,6 +58,7 @@ class User(Base):
     prompt_version_id: Mapped[int | None] = mapped_column()
 
     last_seen: Mapped[datetime | None] = mapped_column(TIMESTAMPTZ)
+    views_seen_at: Mapped[datetime | None] = mapped_column(TIMESTAMPTZ)
 
     created_at: Mapped[datetime] = mapped_column(TIMESTAMPTZ, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
@@ -176,6 +177,11 @@ class Match(Base):
 
     created_at: Mapped[datetime] = mapped_column(TIMESTAMPTZ, server_default=func.now())
     matched_at: Mapped[datetime | None] = mapped_column(TIMESTAMPTZ)
+
+    user1_archived: Mapped[bool] = mapped_column(Boolean, default=False, server_default='false')
+    user2_archived: Mapped[bool] = mapped_column(Boolean, default=False, server_default='false')
+    user1_last_read_at: Mapped[datetime | None] = mapped_column(TIMESTAMPTZ)
+    user2_last_read_at: Mapped[datetime | None] = mapped_column(TIMESTAMPTZ)
 
     __table_args__ = (
         UniqueConstraint("user1_id", "user2_id"),

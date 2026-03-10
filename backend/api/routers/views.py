@@ -11,7 +11,8 @@ from api.middleware.auth import get_current_user
 from core.storage import get_photo_signed_url
 from core.telegram import send_notification
 from db.connection import get_db
-from modules.users.models import Photo, ProfileView, User
+from modules.users.models import Match, Photo, ProfileView, User
+from sqlalchemy import or_
 
 logger = logging.getLogger(__name__)
 
@@ -66,6 +67,17 @@ async def _user_photo_url(db: AsyncSession, user_id: int) -> str | None:
         except Exception:
             pass
     return None
+
+
+@router.post("/mark-seen")
+async def mark_views_seen(
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Mark all profile views as seen (updates views_seen_at on User)."""
+    user.views_seen_at = datetime.now(timezone.utc)
+    await db.commit()
+    return {"ok": True}
 
 
 @router.post("/{viewed_user_id}")
@@ -169,6 +181,12 @@ async def get_my_viewers(
         if not viewer:
             continue
         photo_url = await _user_photo_url(db, viewer.id)
+        # Find match_id between viewer and current user
+        u1, u2 = min(viewer.id, user.id), max(viewer.id, user.id)
+        match_res = await db.execute(
+            select(Match).where(Match.user1_id == u1, Match.user2_id == u2).limit(1)
+        )
+        match = match_res.scalar_one_or_none()
         items.append({
             "view_id": v.id,
             "user_id": viewer.id,
@@ -180,6 +198,7 @@ async def get_my_viewers(
             "last_seen_text": _last_seen_text(viewer.last_seen),
             "duration_seconds": v.duration_seconds,
             "seen_at": v.seen_at.isoformat(),
+            "match_id": match.id if match else None,
         })
 
     return {"views": items, "total": len(items)}
@@ -215,6 +234,11 @@ async def get_i_viewed(
         if not viewed_user:
             continue
         photo_url = await _user_photo_url(db, viewed_user.id)
+        u1, u2 = min(viewed_user.id, user.id), max(viewed_user.id, user.id)
+        match_res = await db.execute(
+            select(Match).where(Match.user1_id == u1, Match.user2_id == u2).limit(1)
+        )
+        match = match_res.scalar_one_or_none()
         items.append({
             "view_id": v.id,
             "user_id": viewed_user.id,
@@ -226,6 +250,7 @@ async def get_i_viewed(
             "last_seen_text": _last_seen_text(viewed_user.last_seen),
             "duration_seconds": v.duration_seconds,
             "seen_at": v.seen_at.isoformat(),
+            "match_id": match.id if match else None,
         })
 
     return {"views": items, "total": len(items)}
@@ -236,12 +261,12 @@ async def get_new_views_count(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Count of unread profile views (all views, client tracks last seen)."""
+    """Count of unread profile views since views_seen_at."""
+    q = select(ProfileView).where(ProfileView.viewed_id == user.id)
+    if user.views_seen_at:
+        q = q.where(ProfileView.seen_at > user.views_seen_at)
     result = await db.execute(
-        select(ProfileView)
-        .where(ProfileView.viewed_id == user.id)
-        .order_by(ProfileView.seen_at.desc())
-        .limit(1000)
+        q.order_by(ProfileView.seen_at.desc()).limit(1000)
     )
     views = list(result.scalars().all())
     # Deduplicate by viewer

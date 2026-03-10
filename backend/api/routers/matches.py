@@ -13,7 +13,7 @@ from core.config import settings
 from core.storage import get_photo_signed_url
 from core.telegram import send_notification
 from db.connection import get_db
-from modules.users.models import DailyMatchQuota, Match, Photo, User
+from modules.users.models import DailyMatchQuota, Match, MatchMessage, Photo, User
 from modules.users.repository import get_user
 
 
@@ -108,10 +108,16 @@ async def get_matches(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    # Get matches where user is involved
+    # Get matches where user is involved and not archived by this user
     result = await db.execute(
         select(Match)
-        .where(or_(Match.user1_id == user.id, Match.user2_id == user.id))
+        .where(
+            or_(Match.user1_id == user.id, Match.user2_id == user.id),
+            or_(
+                and_(Match.user1_id == user.id, Match.user1_archived == False),
+                and_(Match.user2_id == user.id, Match.user2_archived == False),
+            ),
+        )
         .order_by(Match.created_at.desc())
         .offset(offset)
         .limit(limit)
@@ -152,6 +158,17 @@ async def get_matches(
             photo_urls.append({"url": url, "is_primary": p.is_primary})
 
         user_action = m.user1_action if m.user1_id == user.id else m.user2_action
+        my_last_read = m.user1_last_read_at if m.user1_id == user.id else m.user2_last_read_at
+
+        # Check for unread messages from partner
+        unread_q = select(MatchMessage).where(
+            MatchMessage.match_id == m.id,
+            MatchMessage.sender_id == partner_id,
+        )
+        if my_last_read:
+            unread_q = unread_q.where(MatchMessage.created_at > my_last_read)
+        unread_res = await db.execute(unread_q.limit(1))
+        has_unread = unread_res.scalar_one_or_none() is not None
 
         goal_labels = {"romantic": "Романтические отношения", "friendship": "Дружба", "open": "Открыт к общению"}
 
@@ -178,6 +195,7 @@ async def get_matches(
             "explanation": m.explanation_text,
             "user_action": user_action,
             "restore_count": m.user1_restore_count if m.user1_id == user.id else m.user2_restore_count,
+            "has_unread": has_unread,
         })
 
     return {"matches": match_list, "remaining_today": max(0, remaining)}

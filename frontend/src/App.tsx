@@ -65,8 +65,8 @@ export default function App() {
           getViewsCount(),
         ])
         const pending = matchesData.matches.filter(m => m.user_action === null).length
-        const openChats = matchesData.matches.filter(m => m.user_action === 'like').length
-        setBadges({ matches: pending, chats: openChats, views: viewsData.count })
+        const unreadChats = matchesData.matches.filter(m => m.user_action === 'like' && m.has_unread).length
+        setBadges({ matches: pending, chats: unreadChats, views: viewsData.count })
       } catch {
         // ignore
       }
@@ -115,7 +115,7 @@ export default function App() {
       {screen === 'profile' && <Profile onBack={backToChat} />}
       {screen === 'matches' && <Matches onBack={backToChat} onOpenChat={openMatchChat} />}
       {screen === 'chats' && <Matches onBack={backToChat} onOpenChat={openMatchChat} chatsOnly />}
-      {screen === 'views' && <ProfileViews onBack={backToChat} />}
+      {screen === 'views' && <ProfileViews onBack={backToChat} onOpenMatch={openMatchChat} />}
     </>
   )
 }

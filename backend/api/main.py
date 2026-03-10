@@ -24,6 +24,11 @@ async def lifespan(app: FastAPI):
     async with engine.begin() as conn:
         await conn.execute(_sa.text("ALTER TABLE users ADD COLUMN IF NOT EXISTS occupation VARCHAR(100)"))
         await conn.execute(_sa.text("ALTER TABLE users ADD COLUMN IF NOT EXISTS last_seen TIMESTAMPTZ"))
+        await conn.execute(_sa.text("ALTER TABLE users ADD COLUMN IF NOT EXISTS views_seen_at TIMESTAMPTZ"))
+        await conn.execute(_sa.text("ALTER TABLE matches ADD COLUMN IF NOT EXISTS user1_archived BOOLEAN NOT NULL DEFAULT FALSE"))
+        await conn.execute(_sa.text("ALTER TABLE matches ADD COLUMN IF NOT EXISTS user2_archived BOOLEAN NOT NULL DEFAULT FALSE"))
+        await conn.execute(_sa.text("ALTER TABLE matches ADD COLUMN IF NOT EXISTS user1_last_read_at TIMESTAMPTZ"))
+        await conn.execute(_sa.text("ALTER TABLE matches ADD COLUMN IF NOT EXISTS user2_last_read_at TIMESTAMPTZ"))
         await conn.execute(_sa.text("""
             CREATE TABLE IF NOT EXISTS profile_views (
                 id SERIAL PRIMARY KEY,

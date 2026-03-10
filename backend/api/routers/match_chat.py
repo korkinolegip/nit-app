@@ -110,7 +110,14 @@ async def get_messages(
         url = await get_photo_signed_url(p.storage_key)
         partner_photos.append({"url": url, "is_primary": p.is_primary})
 
-    # Commit view record
+    # Update last_read_at for current user
+    now = datetime.now(timezone.utc)
+    if match.user1_id == user.id:
+        match.user1_last_read_at = now
+    else:
+        match.user2_last_read_at = now
+
+    # Commit view record + last_read_at
     try:
         await db.commit()
     except Exception:
@@ -178,6 +185,23 @@ async def send_message(
         raise HTTPException(403, "Not your match")
     if match.chat_status not in ("open", "matched", "exchanged"):
         raise HTTPException(403, "Chat is not open")
+
+    partner_id = match.user2_id if match.user1_id == user.id else match.user1_id
+
+    # Unarchive for partner if they had archived — inject system message
+    partner_archived = match.user2_archived if match.user1_id == user.id else match.user1_archived
+    if partner_archived:
+        if match.user1_id == user.id:
+            match.user2_archived = False
+        else:
+            match.user1_archived = False
+        system_msg = MatchMessage(
+            match_id=match_id,
+            sender_id=user.id,
+            content_type="system",
+            text="История переписки была очищена",
+        )
+        db.add(system_msg)
 
     msg = MatchMessage(
         match_id=match_id,
@@ -317,3 +341,25 @@ async def request_analysis(
         logger.warning(f"Chat analysis failed: {e}")
 
     return {"analysis_text": "Не удалось проанализировать переписку. Попробуй позже."}
+
+
+@router.delete("/{match_id}")
+async def delete_match_chat(
+    match_id: int,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Soft-delete (archive) a chat for the current user."""
+    match = await db.get(Match, match_id)
+    if not match:
+        raise HTTPException(404, "Match not found")
+    if user.id not in (match.user1_id, match.user2_id):
+        raise HTTPException(403, "Not your match")
+
+    if match.user1_id == user.id:
+        match.user1_archived = True
+    else:
+        match.user2_archived = True
+
+    await db.commit()
+    return {"ok": True}
