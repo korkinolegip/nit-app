@@ -4,8 +4,13 @@ export interface MatchUser {
   name: string
   age: number
   city: string
+  goal: string | null
+  occupation: string | null
   personality_type: string | null
   profile_text: string | null
+  attachment_hint: string | null
+  strengths: string[]
+  ideal_partner_traits: string[]
   photos: { url: string; is_primary: boolean }[]
 }
 

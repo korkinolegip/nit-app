@@ -131,14 +131,21 @@ async def get_matches(
 
         user_action = m.user1_action if m.user1_id == user.id else m.user2_action
 
+        goal_labels = {"romantic": "Романтические отношения", "friendship": "Дружба", "open": "Открыт к общению"}
+
         match_list.append({
             "match_id": m.id,
             "user": {
                 "name": partner.name,
                 "age": partner.age,
                 "city": partner.city,
+                "goal": goal_labels.get(partner.goal or "", partner.goal),
+                "occupation": partner.occupation,
                 "personality_type": partner.personality_type,
                 "profile_text": partner.profile_text,
+                "attachment_hint": partner.attachment_hint,
+                "strengths": (partner.strengths or {}).get("items", []),
+                "ideal_partner_traits": (partner.ideal_partner_traits or {}).get("items", []),
                 "photos": photo_urls,
             },
             "compatibility_score": m.compatibility_score,

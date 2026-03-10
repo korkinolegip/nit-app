@@ -235,13 +235,17 @@ export default function Discovery({ onBack, onOpenChat }: DiscoveryProps) {
                 onClick={() => handleAction('like')}
                 disabled={acting}
                 style={{
-                  flex: 1, padding: '15px', background: 'var(--w)',
+                  flex: 2, padding: '15px', background: 'var(--w)',
                   border: 'none', borderRadius: 14,
                   color: 'var(--bg)', fontSize: 15, fontWeight: 600, cursor: 'pointer',
-                  fontFamily: 'Inter',
+                  fontFamily: 'Inter', display: 'flex', alignItems: 'center',
+                  justifyContent: 'center', gap: 8,
                 }}
               >
-                Написать
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
+                  <path d="M12 21C12 21 3 15 3 9a5 5 0 0 1 9-3 5 5 0 0 1 9 3c0 6-9 12-9 12z"/>
+                </svg>
+                Нравится
               </button>
             </div>
           </div>
@@ -332,22 +336,21 @@ function ProfileModal({ match: m, photos, onClose, onLike, onSkip }: {
 
       {/* Info */}
       <div style={{ flex: 1, overflowY: 'auto', padding: '20px 20px 0' }}>
+        {/* Name + age */}
         <div style={{ fontSize: 26, fontWeight: 700, color: 'var(--w)', letterSpacing: '-0.02em' }}>
           {m.user.name}, {m.user.age}
         </div>
-        <div style={{ fontSize: 14, color: 'var(--d3)', marginTop: 4 }}>{m.user.city}</div>
 
-        {m.user.personality_type && (
-          <div style={{
-            marginTop: 14, display: 'inline-block',
-            background: 'var(--bg3)', border: '1px solid var(--l)',
-            borderRadius: 10, padding: '6px 12px',
-            fontSize: 13, color: 'var(--d2)',
-          }}>
-            {m.user.personality_type}
-          </div>
-        )}
+        {/* Key facts row */}
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginTop: 10 }}>
+          {m.user.city && <Chip icon="📍">{m.user.city}</Chip>}
+          {m.user.occupation && <Chip icon="💼">{m.user.occupation}</Chip>}
+          {m.user.goal && <Chip icon="🎯">{m.user.goal}</Chip>}
+          {m.user.personality_type && <Chip icon="🧠">{m.user.personality_type}</Chip>}
+          {m.user.attachment_hint && <Chip icon="🔗">{attachmentLabel(m.user.attachment_hint)}</Chip>}
+        </div>
 
+        {/* AI explanation */}
         {m.explanation && (
           <div style={{
             marginTop: 16, padding: '14px 16px',
@@ -358,16 +361,29 @@ function ProfileModal({ match: m, photos, onClose, onLike, onSkip }: {
           </div>
         )}
 
+        {/* About */}
         {m.user.profile_text && (
-          <div style={{ marginTop: 16 }}>
-            <div style={{ fontSize: 11, fontWeight: 600, letterSpacing: '.07em', color: 'var(--d3)', textTransform: 'uppercase', marginBottom: 8 }}>
-              О себе
-            </div>
+          <Section label="О себе">
             <div style={{ fontSize: 14, color: 'var(--d2)', lineHeight: 1.7 }}>
               {m.user.profile_text}
             </div>
-          </div>
+          </Section>
         )}
+
+        {/* Strengths */}
+        {m.user.strengths.length > 0 && (
+          <Section label="Сильные стороны">
+            <TagList items={m.user.strengths} />
+          </Section>
+        )}
+
+        {/* Ideal partner */}
+        {m.user.ideal_partner_traits.length > 0 && (
+          <Section label="Ищет в партнёре">
+            <TagList items={m.user.ideal_partner_traits} />
+          </Section>
+        )}
+
         <div style={{ height: 20 }} />
       </div>
 
@@ -381,11 +397,15 @@ function ProfileModal({ match: m, photos, onClose, onLike, onSkip }: {
           Пропустить
         </button>
         <button onClick={onLike} style={{
-          flex: 1, padding: '15px', background: 'var(--w)',
+          flex: 2, padding: '15px', background: 'var(--w)',
           border: 'none', borderRadius: 14,
           color: 'var(--bg)', fontSize: 15, fontWeight: 600, cursor: 'pointer', fontFamily: 'Inter',
+          display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
         }}>
-          Написать
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
+            <path d="M12 21C12 21 3 15 3 9a5 5 0 0 1 9-3 5 5 0 0 1 9 3c0 6-9 12-9 12z"/>
+          </svg>
+          Нравится
         </button>
       </div>
 
@@ -394,6 +414,58 @@ function ProfileModal({ match: m, photos, onClose, onLike, onSkip }: {
       `}</style>
     </div>
   )
+}
+
+// Helper components
+function Chip({ icon, children }: { icon: string; children: React.ReactNode }) {
+  return (
+    <div style={{
+      display: 'inline-flex', alignItems: 'center', gap: 5,
+      background: 'var(--bg3)', border: '1px solid var(--l)',
+      borderRadius: 20, padding: '5px 10px',
+      fontSize: 13, color: 'var(--d2)',
+    }}>
+      <span style={{ fontSize: 12 }}>{icon}</span>
+      {children}
+    </div>
+  )
+}
+
+function Section({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div style={{ marginTop: 18 }}>
+      <div style={{ fontSize: 11, fontWeight: 600, letterSpacing: '.07em', color: 'var(--d3)', textTransform: 'uppercase' as const, marginBottom: 8 }}>
+        {label}
+      </div>
+      {children}
+    </div>
+  )
+}
+
+function TagList({ items }: { items: string[] }) {
+  return (
+    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+      {items.map((item, i) => (
+        <div key={i} style={{
+          background: 'var(--bg3)', border: '1px solid var(--l)',
+          borderRadius: 20, padding: '5px 12px',
+          fontSize: 13, color: 'var(--d2)',
+        }}>
+          {item}
+        </div>
+      ))}
+    </div>
+  )
+}
+
+function attachmentLabel(hint: string): string {
+  const map: Record<string, string> = {
+    secure: 'Надёжный тип',
+    anxious: 'Тревожный тип',
+    avoidant: 'Избегающий тип',
+    disorganized: 'Дезорганизованный',
+  }
+  return map[hint] || hint
 }
 
 function EmptyState({ onBack, exhausted }: { onBack: () => void; exhausted: boolean }) {
