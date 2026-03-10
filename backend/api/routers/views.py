@@ -1,6 +1,6 @@
 import asyncio
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel
@@ -97,6 +97,21 @@ async def record_view(
             return {"ok": True}
         # Fall through: create a new record if no open record found
 
+    # Check 24h cooldown before sending push (initial open only)
+    should_push = False
+    if body.duration_seconds is None:
+        cutoff = datetime.now(timezone.utc) - timedelta(hours=24)
+        recent = await db.execute(
+            select(ProfileView)
+            .where(
+                ProfileView.viewer_id == user.id,
+                ProfileView.viewed_id == viewed_user_id,
+                ProfileView.seen_at >= cutoff,
+            )
+            .limit(1)
+        )
+        should_push = recent.scalar_one_or_none() is None
+
     view = ProfileView(
         viewer_id=user.id,
         viewed_id=viewed_user_id,
@@ -105,8 +120,7 @@ async def record_view(
     db.add(view)
     await db.commit()
 
-    # Push notification: only on initial open (no duration yet)
-    if body.duration_seconds is None:
+    if should_push:
         try:
             viewed_user = await db.get(User, viewed_user_id)
             if viewed_user and viewed_user.telegram_id:
