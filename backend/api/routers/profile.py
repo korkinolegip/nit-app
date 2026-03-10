@@ -1,7 +1,9 @@
 import asyncio
 import logging
 import uuid
+from datetime import datetime, timezone
 
+import httpx
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 
 logger = logging.getLogger(__name__)
@@ -17,7 +19,7 @@ from core.telegram import send_notification
 from db.connection import get_db
 from modules.matching.runner import run_matching_for_user
 from modules.users.models import Match, Photo, User
-from modules.users.repository import get_user, get_user_photos
+from modules.users.repository import get_user, get_user_photos, get_interview_session, create_interview_session
 
 router = APIRouter(prefix="/api/profile", tags=["profile"])
 
@@ -111,9 +113,13 @@ async def update_profile(
         changed_fields.append("occupation")
     await db.commit()
 
-    # Notify match partners about profile changes (non-blocking)
+    # Notify match partners + trigger AI dialog on profile change
     if changed_fields:
+        changed_labels = [field_labels.get(f, f) for f in changed_fields]
         asyncio.create_task(_notify_partners_of_update(user.id, user.name, changed_fields, field_labels))
+        now = datetime.now(timezone.utc)
+        if not user.last_profile_dialog_at or (now - user.last_profile_dialog_at).total_seconds() >= 86400:
+            asyncio.create_task(_trigger_profile_ai_dialog(user.id, changed_labels))
 
     return {"user": {"id": user.id, "name": user.name, "city": user.city, "goal": user.goal}}
 
@@ -145,6 +151,68 @@ async def _notify_partners_of_update(user_id: int, user_name: str, changed_field
                         pass
     except Exception as e:
         logger.warning(f"Failed to notify partners of profile update: {e}")
+
+
+async def _trigger_profile_ai_dialog(user_id: int, changed_labels: list[str]) -> None:
+    """Inject an AI question into the interview session when the user updates their profile."""
+    from db.connection import async_session
+    from sqlalchemy.orm.attributes import flag_modified
+    try:
+        async with async_session() as db:
+            user = await db.get(User, user_id)
+            if not user:
+                return
+            now = datetime.now(timezone.utc)
+            # Re-check cooldown inside the task
+            if user.last_profile_dialog_at and (now - user.last_profile_dialog_at).total_seconds() < 86400:
+                return
+            session = await get_interview_session(db, user_id)
+            if session is None or not session.is_complete:
+                return  # Only inject for users who finished onboarding
+
+            fields_text = ", ".join(changed_labels)
+            prompt = (
+                f"Пользователь приложения знакомств обновил профиль: изменил(а) {fields_text}.\n"
+                "Напиши одно короткое живое сообщение (1-2 предложения) с вопросом: почему решил(а) изменить? "
+                "Что изменилось в жизни? Тон дружелюбный, на «ты», по-русски. Без кавычек. Без markdown."
+            )
+            question = None
+            if settings.GROQ_API_KEY:
+                try:
+                    async with httpx.AsyncClient(timeout=10) as client:
+                        r = await client.post(
+                            "https://api.groq.com/openai/v1/chat/completions",
+                            headers={"Authorization": f"Bearer {settings.GROQ_API_KEY}"},
+                            json={
+                                "model": "llama-3.3-70b-versatile",
+                                "messages": [{"role": "user", "content": prompt}],
+                                "max_tokens": 100,
+                                "temperature": 0.8,
+                            },
+                        )
+                        if r.status_code == 200:
+                            question = r.json()["choices"][0]["message"]["content"].strip()
+                except Exception:
+                    pass
+
+            if not question:
+                question = f"Вижу, ты обновил(а) {fields_text} — что-то изменилось? Расскажи немного."
+
+            messages = list(session.messages or [])
+            messages.append({"role": "assistant", "content": question})
+            session.messages = messages
+            flag_modified(session, "messages")
+
+            collected = dict(session.collected_data or {})
+            collected["profile_dialog_pending"] = True
+            session.collected_data = collected
+            flag_modified(session, "collected_data")
+
+            user.last_profile_dialog_at = now
+            await db.commit()
+            logger.info(f"Profile dialog injected for user {user_id}")
+    except Exception as e:
+        logger.warning(f"Profile dialog injection failed for user {user_id}: {e}")
 
 
 @router.post("/photos")

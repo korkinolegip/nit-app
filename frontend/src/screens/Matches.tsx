@@ -50,6 +50,20 @@ export default function Matches({ onBack, onOpenChat, chatsOnly = false }: Match
       .then(data => setMatches(data.matches))
       .catch(() => {})
       .finally(() => setLoading(false))
+
+    // Poll every 60s when screen is visible — refreshes partner profile data
+    const poll = () => {
+      if (document.visibilityState === 'visible') {
+        getMatches().then(data => setMatches(data.matches)).catch(() => {})
+      }
+    }
+    const interval = setInterval(poll, 60_000)
+    const onVisibility = () => { if (document.visibilityState === 'visible') poll() }
+    document.addEventListener('visibilitychange', onVisibility)
+    return () => {
+      clearInterval(interval)
+      document.removeEventListener('visibilitychange', onVisibility)
+    }
   }, [])
 
   const pending = chatsOnly ? [] : matches.filter(m => m.user_action === null)

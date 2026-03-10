@@ -26,6 +26,42 @@ from modules.users.repository import (
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/chat", tags=["chat"])
 
+
+async def _update_profile_from_dialog(user_id: int, user_response: str) -> None:
+    """Update profile_text after user responds to a profile-change dialog question."""
+    from db.connection import async_session
+    try:
+        async with async_session() as db:
+            user = await db.get(User, user_id)
+            if not user:
+                return
+            current = user.profile_text or ""
+            prompt = (
+                "Ты составляешь краткое описание пользователя приложения знакомств.\n"
+                f"Текущее описание: «{current}»\n"
+                f"Пользователь написал о себе новое: «{user_response}»\n"
+                "Обнови описание, органично включив новую информацию (2-3 предложения, по-русски). "
+                "Пиши от третьего лица. Без кавычек. Без markdown."
+            )
+            if settings.GROQ_API_KEY:
+                async with httpx.AsyncClient(timeout=10) as client:
+                    r = await client.post(
+                        "https://api.groq.com/openai/v1/chat/completions",
+                        headers={"Authorization": f"Bearer {settings.GROQ_API_KEY}"},
+                        json={
+                            "model": "llama-3.3-70b-versatile",
+                            "messages": [{"role": "user", "content": prompt}],
+                            "max_tokens": 200,
+                        },
+                    )
+                    if r.status_code == 200:
+                        new_text = r.json()["choices"][0]["message"]["content"].strip()
+                        user.profile_text = new_text
+                        await db.commit()
+                        logger.info(f"Profile text updated via dialog for user {user_id}")
+    except Exception as e:
+        logger.warning(f"Profile dialog update failed for user {user_id}: {e}")
+
 _MATCHES_KW = ["добавь в матч", "добавить в матч", "в матчи", "написать ему", "написать ей",
                "открой матч", "перейти в матч", "перейди в матч", "хочу написать", "мои матчи"]
 _DISCOVERY_KW = ["добавь в люди", "добавить в люди", "открой люди", "открыть людей",
@@ -416,6 +452,16 @@ async def send_message(
 
         photos = await get_user_photos(db, user.id)
         result = await process_post_onboarding_turn(text, user, session, db, has_photos=len(photos) > 0)
+
+        # If user is responding to a profile-change dialog question — update profile_text
+        if session.collected_data and session.collected_data.get("profile_dialog_pending"):
+            from sqlalchemy.orm.attributes import flag_modified
+            collected = dict(session.collected_data)
+            del collected["profile_dialog_pending"]
+            session.collected_data = collected
+            flag_modified(session, "collected_data")
+            await db.commit()
+            asyncio.create_task(_update_profile_from_dialog(user.id, text))
 
         # Apply profile edits if AI detected them
         edit_fields = result.get("edit_fields", {})

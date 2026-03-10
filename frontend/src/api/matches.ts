@@ -95,3 +95,38 @@ export async function sendMatchMessage(matchId: number, text: string) {
     body: JSON.stringify({ text }),
   })
 }
+
+export interface PublicUserProfile {
+  user_id: number
+  name: string
+  age: number | null
+  city: string | null
+  gender: string | null
+  occupation: string | null
+  goal: string | null
+  personality_type: string | null
+  profile_text: string | null
+  attachment_hint: string | null
+  strengths: string[]
+  ideal_partner_traits: string[]
+  photos: { url: string; is_primary: boolean }[]
+  is_online: boolean
+  last_seen_text: string | null
+  created_at: string | null
+}
+
+export async function getUserById(userId: number): Promise<PublicUserProfile> {
+  return apiRequest(`/api/matches/user/${userId}`)
+}
+
+export interface DirectLikeResponse {
+  mutual_match: boolean
+  match_chat_id: number | null
+  match_id: number
+  my_gender: string | null
+  partner_gender: string | null
+}
+
+export async function likeUser(userId: number): Promise<DirectLikeResponse> {
+  return apiRequest(`/api/matches/like-user/${userId}`, { method: 'POST' })
+}

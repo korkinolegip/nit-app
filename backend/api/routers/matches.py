@@ -101,6 +101,127 @@ class MatchActionRequest(BaseModel):
     action: str  # like | skip
 
 
+@router.get("/user/{user_id}")
+async def get_user_profile(
+    user_id: int,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Public profile of any user — used for card sync polling and profile viewing."""
+    target = await get_user(db, user_id)
+    if not target:
+        from fastapi import HTTPException
+        raise HTTPException(404, "User not found")
+
+    photos_result = await db.execute(
+        select(Photo)
+        .where(Photo.user_id == user_id, Photo.moderation_status == "approved")
+        .order_by(Photo.sort_order)
+    )
+    photos = list(photos_result.scalars().all())
+    photo_urls = []
+    for p in photos:
+        try:
+            url = await get_photo_signed_url(p.storage_key)
+        except Exception:
+            url = ""
+        photo_urls.append({"url": url, "is_primary": p.is_primary})
+
+    def _as_list(val) -> list:
+        if not val:
+            return []
+        if isinstance(val, list):
+            return val
+        if isinstance(val, dict):
+            return list(val.values())
+        return []
+
+    goal_labels = {"romantic": "Романтические отношения", "friendship": "Дружба", "open": "Открыт к общению"}
+    return {
+        "user_id": target.id,
+        "name": target.name,
+        "age": target.age,
+        "city": target.city,
+        "gender": target.gender,
+        "occupation": target.occupation,
+        "goal": goal_labels.get(target.goal or "", target.goal),
+        "personality_type": target.personality_type,
+        "profile_text": target.profile_text,
+        "attachment_hint": target.attachment_hint,
+        "strengths": _as_list(target.strengths),
+        "ideal_partner_traits": _as_list(target.ideal_partner_traits),
+        "photos": photo_urls,
+        "is_online": _is_online(target.last_seen),
+        "last_seen_text": _last_seen_text(target.last_seen),
+        "created_at": target.created_at.isoformat() if target.created_at else None,
+    }
+
+
+@router.post("/like-user/{user_id}")
+async def like_user_directly(
+    user_id: int,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Like a user directly (creates match record if one doesn't exist yet)."""
+    from fastapi import HTTPException
+    if user_id == user.id:
+        raise HTTPException(400, "Cannot like yourself")
+
+    target = await get_user(db, user_id)
+    if not target:
+        raise HTTPException(404, "User not found")
+
+    # Enforce user1_id < user2_id constraint
+    u1_id, u2_id = min(user.id, user_id), max(user.id, user_id)
+    match_res = await db.execute(
+        select(Match).where(Match.user1_id == u1_id, Match.user2_id == u2_id)
+    )
+    match = match_res.scalar_one_or_none()
+
+    if not match:
+        match = Match(user1_id=u1_id, user2_id=u2_id, compatibility_score=0.0)
+        db.add(match)
+        await db.flush()
+
+    if match.user1_id == user.id:
+        match.user1_action = "like"
+    else:
+        match.user2_action = "like"
+
+    mutual = match.user1_action == "like" and match.user2_action == "like"
+    match_chat_id = None
+    now = datetime.now(timezone.utc)
+
+    if match.chat_status not in ("open", "matched", "exchanged"):
+        match.chat_status = "open"
+        match.chat_opened_at = now
+        match.chat_deadline = now + timedelta(hours=settings.MATCH_CHAT_HOURS)
+
+    match_chat_id = match.id
+
+    if mutual:
+        match.status = "matched"
+        match.matched_at = now
+
+    await db.commit()
+
+    if mutual:
+        asyncio.gather(
+            send_notification(user.telegram_id, f"🎉 Взаимный матч с {target.name}! Открой приложение."),
+            send_notification(target.telegram_id, f"🎉 Взаимный матч с {user.name}! Открой приложение."),
+            return_exceptions=True,
+        )
+
+    return {
+        "mutual_match": mutual,
+        "match_chat_id": match_chat_id,
+        "match_id": match.id,
+        "my_gender": user.gender,
+        "partner_gender": target.gender,
+    }
+
+
 @router.get("")
 async def get_matches(
     limit: int = 5,
