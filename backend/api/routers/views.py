@@ -75,9 +75,27 @@ async def record_view(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Record that current user viewed another user's profile."""
+    """Record or update a profile view.
+    - No duration: creates new view record + sends push notification.
+    - With duration: updates the most recent open view record (no extra push).
+    """
     if viewed_user_id == user.id:
         return {"ok": True}
+
+    if body.duration_seconds is not None:
+        # Update duration on the most recent view from this viewer (no new push)
+        existing = await db.execute(
+            select(ProfileView)
+            .where(ProfileView.viewer_id == user.id, ProfileView.viewed_id == viewed_user_id)
+            .order_by(ProfileView.seen_at.desc())
+            .limit(1)
+        )
+        row = existing.scalar_one_or_none()
+        if row and row.duration_seconds is None:
+            row.duration_seconds = body.duration_seconds
+            await db.commit()
+            return {"ok": True}
+        # Fall through: create a new record if no open record found
 
     view = ProfileView(
         viewer_id=user.id,
@@ -87,16 +105,17 @@ async def record_view(
     db.add(view)
     await db.commit()
 
-    # Push notification to viewed user (non-blocking)
-    try:
-        viewed_user = await db.get(User, viewed_user_id)
-        if viewed_user and viewed_user.telegram_id:
-            asyncio.create_task(send_notification(
-                viewed_user.telegram_id,
-                f"👁 {user.name} просмотрел(а) твой профиль — загляни в приложение.",
-            ))
-    except Exception:
-        pass
+    # Push notification: only on initial open (no duration yet)
+    if body.duration_seconds is None:
+        try:
+            viewed_user = await db.get(User, viewed_user_id)
+            if viewed_user and viewed_user.telegram_id:
+                asyncio.create_task(send_notification(
+                    viewed_user.telegram_id,
+                    f"👁 {user.name} просмотрел(а) твой профиль — загляни в приложение.",
+                ))
+        except Exception:
+            pass
 
     return {"ok": True}
 

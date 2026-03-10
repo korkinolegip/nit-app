@@ -7,6 +7,7 @@ import SettingsSheet from '../components/SettingsSheet'
 import MenuSheet from '../components/MenuSheet'
 import { transcribeVoice, getChatHistory, pingActivity, getActivitySummary } from '../api/chat'
 import { uploadPhoto } from '../api/profile'
+import { matchAction } from '../api/matches'
 
 interface CardItem {
   match_id: number
@@ -277,6 +278,7 @@ export default function Chat({ onOpenMatch, onNavigateTo, isReturning = false, s
             onViewCard={(card) => setViewingCard(card)}
             onOpenMatch={onOpenMatch}
             onNavigate={(screen) => onNavigateTo(screen as any)}
+            onMatchAction={(matchId, action) => matchAction(matchId, action)}
           />
         ))}
 

@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { type Message } from '../hooks/useChat'
 import PortraitCard from './PortraitCard'
 import VoiceMessage from './VoiceMessage'
@@ -23,9 +24,10 @@ interface MessageRowProps {
   onViewCard?: (card: CardItem) => void
   onOpenMatch?: (matchId: number) => void
   onNavigate?: (screen: string) => void
+  onMatchAction?: (matchId: number, action: 'like' | 'skip') => Promise<{ mutual_match?: boolean; match_chat_id?: number } | void>
 }
 
-export default function MessageRow({ message, onConfirmPortrait, onEditPortrait, onUploadPhoto, onViewCard, onNavigate }: MessageRowProps) {
+export default function MessageRow({ message, onConfirmPortrait, onEditPortrait, onUploadPhoto, onViewCard, onNavigate, onMatchAction, onOpenMatch }: MessageRowProps) {
   const isAI = message.sender === 'ai'
 
   return (
@@ -180,64 +182,13 @@ export default function MessageRow({ message, onConfirmPortrait, onEditPortrait,
             )}
             <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', width: '100%' }}>
               {(message.cardData.cards as CardItem[]).map((card) => (
-                <div
+                <UserCardItem
                   key={card.match_id}
-                  style={{
-                    background: 'var(--bg3)', border: '1px solid var(--l)',
-                    borderRadius: '16px', overflow: 'hidden', cursor: 'pointer',
-                  }}
-                  onClick={() => onViewCard?.(card)}
-                >
-                  <div style={{ display: 'flex', gap: 12, padding: '12px' }}>
-                    {/* Photo */}
-                    <div style={{
-                      width: 64, height: 64, borderRadius: 12, flexShrink: 0,
-                      background: 'var(--bg)', overflow: 'hidden',
-                      display: 'flex', alignItems: 'center', justifyContent: 'center',
-                      fontSize: 24,
-                    }}>
-                      {card.photo_url
-                        ? <img src={card.photo_url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                        : '👤'
-                      }
-                    </div>
-                    {/* Info */}
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--w)', marginBottom: 2 }}>
-                        {card.name}{card.age ? `, ${card.age}` : ''}
-                      </div>
-                      <div style={{ fontSize: 12, color: 'var(--d3)', marginBottom: 6 }}>
-                        {[card.city, card.goal].filter(Boolean).join(' · ')}
-                      </div>
-                      {/* Compatibility */}
-                      <div style={{
-                        display: 'inline-flex', alignItems: 'center', gap: 5,
-                        background: 'rgba(255,255,255,0.06)', border: '1px solid var(--l)',
-                        borderRadius: 6, padding: '3px 8px',
-                      }}>
-                        <div style={{
-                          width: 6, height: 6, borderRadius: '50%',
-                          background: card.compatibility_score >= 70 ? '#4ade80' : card.compatibility_score >= 50 ? '#facc15' : 'var(--d3)',
-                        }} />
-                        <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--d2)' }}>
-                          {card.compatibility_score}% {card.compatibility_label}
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-                  {/* Open button */}
-                  <div style={{
-                    borderTop: '1px solid var(--l)', padding: '10px 12px',
-                    fontSize: 12, fontWeight: 600, color: 'var(--d2)',
-                    display: 'flex', alignItems: 'center', gap: 6,
-                  }}>
-                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none">
-                      <circle cx="12" cy="8" r="3.5" stroke="currentColor" strokeWidth="1.8"/>
-                      <path d="M4 20c0-4.418 3.582-8 8-8s8 3.582 8 8" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"/>
-                    </svg>
-                    Открыть профиль
-                  </div>
-                </div>
+                  card={card}
+                  onViewCard={onViewCard}
+                  onMatchAction={onMatchAction}
+                  onOpenMatch={onOpenMatch}
+                />
               ))}
             </div>
           </div>
@@ -253,6 +204,128 @@ export default function MessageRow({ message, onConfirmPortrait, onEditPortrait,
           }}
             dangerouslySetInnerHTML={{ __html: message.text }}
           />
+        )}
+      </div>
+    </div>
+  )
+}
+
+function UserCardItem({ card, onViewCard, onMatchAction, onOpenMatch }: {
+  card: CardItem
+  onViewCard?: (card: CardItem) => void
+  onMatchAction?: (matchId: number, action: 'like' | 'skip') => Promise<{ mutual_match?: boolean; match_chat_id?: number } | void>
+  onOpenMatch?: (matchId: number) => void
+}) {
+  const [acted, setActed] = useState<'like' | 'skip' | null>(null)
+  const [loading, setLoading] = useState(false)
+  const [mutualChatId, setMutualChatId] = useState<number | null>(null)
+
+  const handleAction = async (action: 'like' | 'skip') => {
+    if (!onMatchAction || loading) return
+    setLoading(true)
+    try {
+      const res = await onMatchAction(card.match_id, action)
+      setActed(action)
+      if (res && res.mutual_match && res.match_chat_id) {
+        setMutualChatId(res.match_chat_id)
+      }
+    } catch {
+      // ignore
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  return (
+    <div style={{
+      background: 'var(--bg3)', border: '1px solid var(--l)',
+      borderRadius: '16px', overflow: 'hidden',
+    }}>
+      <div
+        style={{ display: 'flex', gap: 12, padding: '12px', cursor: 'pointer' }}
+        onClick={() => !acted && onViewCard?.(card)}
+      >
+        {/* Photo */}
+        <div style={{
+          width: 64, height: 64, borderRadius: 12, flexShrink: 0,
+          background: 'var(--bg)', overflow: 'hidden',
+          display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 24,
+        }}>
+          {card.photo_url
+            ? <img src={card.photo_url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+            : '👤'
+          }
+        </div>
+        {/* Info */}
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontSize: 15, fontWeight: 600, color: acted ? 'var(--d3)' : 'var(--w)', marginBottom: 2 }}>
+            {card.name}{card.age ? `, ${card.age}` : ''}
+          </div>
+          <div style={{ fontSize: 12, color: 'var(--d3)', marginBottom: 6 }}>
+            {[card.city, card.goal].filter(Boolean).join(' · ')}
+          </div>
+          <div style={{
+            display: 'inline-flex', alignItems: 'center', gap: 5,
+            background: 'rgba(255,255,255,0.06)', border: '1px solid var(--l)',
+            borderRadius: 6, padding: '3px 8px',
+          }}>
+            <div style={{
+              width: 6, height: 6, borderRadius: '50%',
+              background: card.compatibility_score >= 70 ? '#4ade80' : card.compatibility_score >= 50 ? '#facc15' : 'var(--d3)',
+            }} />
+            <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--d2)' }}>
+              {card.compatibility_score}% {card.compatibility_label}
+            </span>
+          </div>
+        </div>
+      </div>
+
+      {/* Actions */}
+      <div style={{ borderTop: '1px solid var(--l)', padding: '10px 12px', display: 'flex', gap: 8 }}>
+        {mutualChatId ? (
+          <button
+            onClick={() => onOpenMatch?.(mutualChatId)}
+            style={{
+              flex: 1, padding: '9px', background: '#22c55e', border: 'none',
+              borderRadius: 10, color: '#fff', fontSize: 12, fontWeight: 600,
+              cursor: 'pointer', fontFamily: 'Inter',
+            }}
+          >
+            Взаимно! Открыть чат →
+          </button>
+        ) : acted === 'like' ? (
+          <div style={{ flex: 1, textAlign: 'center', fontSize: 12, color: 'var(--d3)', padding: '9px' }}>
+            Запрос отправлен ✓
+          </div>
+        ) : acted === 'skip' ? (
+          <div style={{ flex: 1, textAlign: 'center', fontSize: 12, color: 'var(--d4)', padding: '9px' }}>
+            Пропущен
+          </div>
+        ) : (
+          <>
+            <button
+              onClick={() => handleAction('skip')}
+              disabled={loading}
+              style={{
+                flex: 1, padding: '9px', background: 'none', border: '1px solid var(--l)',
+                borderRadius: 10, color: 'var(--d3)', fontSize: 12, fontWeight: 500,
+                cursor: 'pointer', fontFamily: 'Inter',
+              }}
+            >
+              Пропустить
+            </button>
+            <button
+              onClick={() => handleAction('like')}
+              disabled={loading}
+              style={{
+                flex: 2, padding: '9px', background: 'var(--w)', border: 'none',
+                borderRadius: 10, color: 'var(--bg)', fontSize: 12, fontWeight: 600,
+                cursor: 'pointer', fontFamily: 'Inter',
+              }}
+            >
+              Написать
+            </button>
+          </>
         )}
       </div>
     </div>
