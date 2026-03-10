@@ -6,7 +6,7 @@ from modules.users.repository import get_embedding, get_user
 
 
 async def find_match_candidates(
-    user_id: int, db: AsyncSession, limit: int = 50
+    user_id: int, db: AsyncSession, limit: int = 50, require_active: bool = True
 ) -> list[tuple[int, float]]:
     user = await get_user(db, user_id)
     if not user:
@@ -22,12 +22,14 @@ async def find_match_candidates(
     # Use vector ordering if user has embedding, else random
     has_embedding = await get_embedding(db, user_id)
 
+    active_clause = "AND u.is_active = TRUE" if require_active else "AND u.name IS NOT NULL"
+
     if has_embedding:
-        query = text("""
+        query = text(f"""
             SELECT u.id FROM users u
             JOIN user_embeddings e ON u.id = e.user_id
             WHERE u.id != :user_id
-              AND u.is_active = TRUE
+              {active_clause}
               AND u.is_paused = FALSE
               AND u.is_banned = FALSE
               AND u.gender = ANY(:genders)
@@ -41,10 +43,10 @@ async def find_match_candidates(
             LIMIT :lim
         """)
     else:
-        query = text("""
+        query = text(f"""
             SELECT u.id FROM users u
             WHERE u.id != :user_id
-              AND u.is_active = TRUE
+              {active_clause}
               AND u.is_paused = FALSE
               AND u.is_banned = FALSE
               AND u.gender = ANY(:genders)

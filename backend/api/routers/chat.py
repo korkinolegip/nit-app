@@ -23,6 +23,27 @@ from modules.users.repository import (
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/chat", tags=["chat"])
 
+_MATCHES_KW = ["добавь в матч", "добавить в матч", "в матчи", "написать ему", "написать ей",
+               "открой матч", "перейти в матч", "перейди в матч", "хочу написать"]
+_DISCOVERY_KW = ["добавь в люди", "добавить в люди", "открой люди", "открыть людей",
+                 "в список люди", "перейди в люди", "перейти в люди"]
+_FIND_KW = ["найди", "найти", "покажи", "есть ли", "кто есть", "посмотри людей",
+            "подходящих", "кто подходит", "покажи профиль", "профиль"]
+
+
+def _detect_action(text: str) -> str | None:
+    t = text.lower()
+    for kw in _MATCHES_KW:
+        if kw in t:
+            return "go_to_matches"
+    for kw in _DISCOVERY_KW:
+        if kw in t:
+            return "go_to_discovery"
+    for kw in _FIND_KW:
+        if kw in t:
+            return "find_people"
+    return None
+
 _CONFIRM_PHRASES = {"всё верно", "все верно", "всё верно ✓"}
 
 
@@ -145,6 +166,9 @@ async def send_message(
                 questionnaire_complete=True,
             )
 
+        # Keyword-based action detection (overrides LLM — more reliable)
+        forced_action = _detect_action(text)
+
         photos = await get_user_photos(db, user.id)
         result = await process_post_onboarding_turn(text, user, session, db, has_photos=len(photos) > 0)
 
@@ -166,14 +190,15 @@ async def send_message(
             if changed:
                 await db.commit()
 
-        action = result.get("action")
+        # Keyword detection takes priority over LLM action field
+        action = forced_action or result.get("action")
         reply_type = "text"
         card_data = None
 
         if action == "find_people":
             reply_type, card_data = await _find_people_cards(user, db)
             if reply_type == "text":
-                result["message"] = "Пока нет подходящих людей — алгоритм ещё подбирает. Загляни в раздел Люди чуть позже, там появятся анкеты."
+                result["message"] = "Пока нет подходящих людей — алгоритм ещё подбирает. Убедись, что загружено фото профиля, и загляни в раздел Люди чуть позже."
         elif action == "go_to_matches":
             reply_type = "navigate_matches"
         elif action == "go_to_discovery":
@@ -234,21 +259,23 @@ async def _find_people_cards(user: User, db: AsyncSession) -> tuple[str, dict | 
     from modules.matching.runner import run_matching_for_user
     from core.storage import get_photo_signed_url
 
-    # Run matching if user has no matches yet
-    existing = await db.execute(
-        select(Match).where(or_(Match.user1_id == user.id, Match.user2_id == user.id)).limit(1)
-    )
-    if not existing.scalar_one_or_none():
-        await run_matching_for_user(user.id, db)
+    # Always try to run matching; include users without photos (require_active=False)
+    await run_matching_for_user(user.id, db, require_active=False)
 
     # Get pending matches (not yet actioned by current user)
     matches_result = await db.execute(
         select(Match)
         .where(or_(Match.user1_id == user.id, Match.user2_id == user.id))
         .order_by(Match.compatibility_score.desc())
-        .limit(5)
+        .limit(10)
     )
     matches = list(matches_result.scalars().all())
+
+    goal_labels = {
+        "romantic": "Романтические отношения", "friendship": "Дружба",
+        "hobby_partner": "Партнёр по интересам", "travel_companion": "Попутчик",
+        "professional": "Деловые связи", "open": "Открыт к общению",
+    }
 
     cards = []
     for m in matches:
@@ -258,13 +285,14 @@ async def _find_people_cards(user: User, db: AsyncSession) -> tuple[str, dict | 
             continue  # already actioned
 
         partner = await get_user(db, partner_id)
-        if not partner:
+        if not partner or not partner.name:
             continue
 
         photo_url = None
         photo_result = await db.execute(
             select(Photo)
-            .where(Photo.user_id == partner_id, Photo.moderation_status == "approved", Photo.is_primary == True)
+            .where(Photo.user_id == partner_id, Photo.moderation_status == "approved")
+            .order_by(Photo.is_primary.desc(), Photo.sort_order)
             .limit(1)
         )
         photo = photo_result.scalar_one_or_none()
@@ -273,12 +301,6 @@ async def _find_people_cards(user: User, db: AsyncSession) -> tuple[str, dict | 
                 photo_url = await get_photo_signed_url(photo.storage_key)
             except Exception:
                 pass
-
-        goal_labels = {
-            "romantic": "Романтические отношения", "friendship": "Дружба",
-            "hobby_partner": "Партнёр по интересам", "travel_companion": "Попутчик",
-            "professional": "Деловые связи", "open": "Открыт к общению",
-        }
 
         if user.goal in ("friendship", "hobby_partner") or partner.goal in ("friendship", "hobby_partner"):
             compat_label = "схожесть интересов"
@@ -300,7 +322,7 @@ async def _find_people_cards(user: User, db: AsyncSession) -> tuple[str, dict | 
 
     if not cards:
         return "text", None
-    return "user_cards", {"cards": cards}
+    return "user_cards", {"cards": cards[:5]}
 
 
 async def _generate_personality_background(user_id: int, collected: dict):
