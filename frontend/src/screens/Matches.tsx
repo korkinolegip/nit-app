@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { getMatches, matchAction, restoreSkip, Match } from '../api/matches'
-
+import { recordProfileView } from '../api/views'
 import Loader from '../components/Loader'
 
 interface MatchesProps {
@@ -89,6 +89,11 @@ export default function Matches({ onBack, onOpenChat, chatsOnly = false }: Match
   }
 
 
+  const openProfile = (m: Match) => {
+    openProfile(m)
+    recordProfileView(m.partner_user_id).catch(() => {})
+  }
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100dvh', background: 'var(--bg)' }}>
       {/* Header */}
@@ -134,7 +139,7 @@ export default function Matches({ onBack, onOpenChat, chatsOnly = false }: Match
                       match={m}
                       acting={acting === m.match_id}
                       onAction={handleAction}
-                      onViewProfile={() => setViewingMatch(m)}
+                      onViewProfile={() => openProfile(m)}
                     />
                   ))}
                 </div>
@@ -157,7 +162,7 @@ export default function Matches({ onBack, onOpenChat, chatsOnly = false }: Match
                       }}>
                         {/* Avatar — tap opens profile */}
                         <div
-                          onClick={() => setViewingMatch(m)}
+                          onClick={() => openProfile(m)}
                           style={{
                             width: 44, height: 44, borderRadius: 12, background: 'var(--bg)',
                             border: '1px solid var(--l)', display: 'flex', alignItems: 'center', justifyContent: 'center',
@@ -170,7 +175,7 @@ export default function Matches({ onBack, onOpenChat, chatsOnly = false }: Match
                           }
                         </div>
                         {/* Info — tap opens profile */}
-                        <div style={{ flex: 1, cursor: 'pointer', minWidth: 0 }} onClick={() => setViewingMatch(m)}>
+                        <div style={{ flex: 1, cursor: 'pointer', minWidth: 0 }} onClick={() => openProfile(m)}>
                           <div style={{ fontSize: 15, fontWeight: 500, color: 'var(--w)', display: 'flex', alignItems: 'center' }}>
                             {m.user.name}, {m.user.age}
                             {daysSince(m.user.created_at) < 2 && <NewBadge />}
@@ -217,7 +222,7 @@ export default function Matches({ onBack, onOpenChat, chatsOnly = false }: Match
                         padding: '12px 14px', display: 'flex', alignItems: 'center', gap: 12, opacity: 0.75,
                       }}>
                         <div
-                          onClick={() => setViewingMatch(m)}
+                          onClick={() => openProfile(m)}
                           style={{
                             width: 44, height: 44, borderRadius: 12, background: 'var(--bg)',
                             border: '1px solid var(--l)', overflow: 'hidden', flexShrink: 0,
@@ -229,7 +234,7 @@ export default function Matches({ onBack, onOpenChat, chatsOnly = false }: Match
                             : m.user.name[0]
                           }
                         </div>
-                        <div style={{ flex: 1, cursor: 'pointer' }} onClick={() => setViewingMatch(m)}>
+                        <div style={{ flex: 1, cursor: 'pointer' }} onClick={() => openProfile(m)}>
                           <div style={{ fontSize: 14, fontWeight: 500, color: 'var(--d2)' }}>{m.user.name}, {m.user.age}</div>
                           <div style={{ fontSize: 11, color: 'var(--d4)', marginTop: 2 }}>
                             {Math.round(m.compatibility_score)}% · осталось восстановлений: {2 - m.restore_count}

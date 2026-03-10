@@ -157,6 +157,7 @@ async def get_matches(
 
         match_list.append({
             "match_id": m.id,
+            "partner_user_id": partner_id,
             "user": {
                 "name": partner.name,
                 "age": partner.age,

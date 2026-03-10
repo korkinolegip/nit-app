@@ -19,6 +19,7 @@ export interface MatchUser {
 
 export interface Match {
   match_id: number
+  partner_user_id: number
   user: MatchUser
   compatibility_score: number
   explanation: string | null

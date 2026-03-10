@@ -74,6 +74,15 @@ async def get_messages(
     partner_id = match.user2_id if match.user1_id == user.id else match.user1_id
     partner = await get_user(db, partner_id)
 
+    # Record profile view (opening chat = viewing partner profile)
+    try:
+        from modules.users.models import ProfileView
+        view = ProfileView(viewer_id=user.id, viewed_id=partner_id)
+        db.add(view)
+        # Don't await commit yet — will happen below
+    except Exception:
+        pass
+
     # Partner photos
     photos_result = await db.execute(
         select(Photo)
@@ -85,6 +94,12 @@ async def get_messages(
     for p in photos:
         url = await get_photo_signed_url(p.storage_key)
         partner_photos.append({"url": url, "is_primary": p.is_primary})
+
+    # Commit view record
+    try:
+        await db.commit()
+    except Exception:
+        await db.rollback()
 
     def _as_list(val) -> list:
         if not val:
