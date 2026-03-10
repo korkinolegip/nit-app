@@ -1,3 +1,5 @@
+import asyncio
+import json
 import logging
 
 from fastapi import APIRouter, Depends
@@ -42,7 +44,7 @@ class ChatMessageResponse(BaseModel):
 class ChatStatusResponse(BaseModel):
     has_session: bool
     is_complete: bool
-    profile_ready: bool  # True only if session complete AND user has real data
+    profile_ready: bool
     onboarding_step: str
     has_photos: bool
 
@@ -71,14 +73,12 @@ async def send_message(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    # Safety check
     safety = check_message_safety(body.text)
     if safety.type != "safe":
         return ChatMessageResponse(reply=safety.response, reply_type="text")
 
     text = sanitize_user_message(body.text)
 
-    # Handle questionnaire answers
     if body.type == "questionnaire_answer" and body.question_id and body.answer_key:
         answer = Answer(
             user_id=user.id,
@@ -89,12 +89,10 @@ async def send_message(
         await db.commit()
         return ChatMessageResponse(reply="Записала. Продолжаем.", reply_type="text")
 
-    # Get or create interview session
     session = await get_interview_session(db, user.id)
     if session is None:
         session = await create_interview_session(db, user.id)
 
-    # If interview already complete — post-onboarding mode
     if session.is_complete:
         if text.lower().strip() in _CONFIRM_PHRASES:
             user.onboarding_step = "photos"
@@ -106,10 +104,28 @@ async def send_message(
             )
 
         photos = await get_user_photos(db, user.id)
-        reply = await process_post_onboarding_turn(text, user, has_photos=len(photos) > 0)
-        return ChatMessageResponse(reply=reply, reply_type="text")
+        result = await process_post_onboarding_turn(text, user, has_photos=len(photos) > 0)
 
-    # Normal interview flow
+        # Apply profile edits if AI detected them
+        edit_fields = result.get("edit_fields", {})
+        if edit_fields:
+            field_map = {"name": "name", "age": "age", "city": "city", "goal": "goal", "occupation": "occupation"}
+            changed = False
+            for key, db_field in field_map.items():
+                if key in edit_fields and edit_fields[key]:
+                    val = edit_fields[key]
+                    if db_field == "age":
+                        try:
+                            val = int(val)
+                        except (ValueError, TypeError):
+                            continue
+                    setattr(user, db_field, val)
+                    changed = True
+            if changed:
+                await db.commit()
+
+        return ChatMessageResponse(reply=result.get("message", ""), reply_type="text")
+
     result = await process_interview_turn(text, session, db)
 
     if result is None:
@@ -118,17 +134,19 @@ async def send_message(
             reply_type="text",
         )
 
-    # Update user fields when interview complete
     if result.get("interview_complete"):
         user.onboarding_step = "questionnaire"
         user.raw_intro_text = text
-        collected = result.get("collected") or {}
-        for field in ["name", "age", "city", "gender", "goal"]:
+        collected = session.collected_data or {}
+        for field in ["name", "age", "city", "gender", "goal", "occupation"]:
             if collected.get(field):
                 setattr(user, field, collected[field])
         if collected.get("partner_gender"):
             user.partner_preference = collected["partner_gender"]
         await db.commit()
+
+        # Generate personality profile in background
+        asyncio.create_task(_generate_personality_background(user.id, collected))
 
     reply_type = "text"
     card_data = None
@@ -144,3 +162,31 @@ async def send_message(
         collected_data=result.get("collected"),
         card_data=card_data,
     )
+
+
+async def _generate_personality_background(user_id: int, collected: dict):
+    """Generate AI personality profile from collected interview data."""
+    from db.connection import async_session
+    from modules.ai.personality import generate_personality_profile
+
+    raw_summary = json.dumps(collected, ensure_ascii=False, indent=2)
+    try:
+        profile = await generate_personality_profile(raw_summary, "")
+        if not profile:
+            return
+        async with async_session() as db:
+            user = await db.get(User, user_id)
+            if not user:
+                return
+            user.personality_type = profile.get("personality_type")
+            user.profile_text = profile.get("description")
+            if profile.get("strengths"):
+                user.strengths = {"items": profile["strengths"]}
+            if profile.get("ideal_partner_traits"):
+                user.ideal_partner_traits = {"items": profile["ideal_partner_traits"]}
+            user.attachment_hint = profile.get("attachment_hint")
+            user.primary_dimension = profile.get("primary_dimension")
+            await db.commit()
+            logger.info(f"Personality generated for user {user_id}: {user.personality_type}")
+    except Exception as e:
+        logger.error(f"Personality generation failed for user {user_id}: {e}")

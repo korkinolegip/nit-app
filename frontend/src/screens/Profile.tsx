@@ -12,6 +12,15 @@ interface ProfileData {
   gender?: string
   goal?: string
   occupation?: string
+  personality_type?: string
+  profile_text?: string
+}
+
+interface PhotoData {
+  id: number
+  url: string
+  is_primary: boolean
+  moderation_status: string
 }
 
 const GOAL_LABELS: Record<string, string> = {
@@ -25,6 +34,8 @@ const GOAL_LABELS: Record<string, string> = {
 
 export default function Profile({ onBack }: ProfileProps) {
   const [profile, setProfile] = useState<ProfileData>({})
+  const [photos, setPhotos] = useState<PhotoData[]>([])
+  const [photoIndex, setPhotoIndex] = useState(0)
   const [loading, setLoading] = useState(true)
   const [editing, setEditing] = useState<string | null>(null)
   const [editValue, setEditValue] = useState('')
@@ -33,7 +44,10 @@ export default function Profile({ onBack }: ProfileProps) {
 
   useEffect(() => {
     getProfile()
-      .then((data: ProfileData) => setProfile(data))
+      .then((data: any) => {
+        setProfile(data.user || data)
+        setPhotos((data.photos || []).filter((p: PhotoData) => p.url))
+      })
       .catch(() => {})
       .finally(() => setLoading(false))
   }, [])
@@ -49,9 +63,9 @@ export default function Profile({ onBack }: ProfileProps) {
     setProfile(updated)
     setEditing(null)
     try {
-      await updateProfile({ [editing]: updated[editing as keyof ProfileData] })
+      await updateProfile({ [editing]: updated[editing as keyof ProfileData] as any })
     } catch {
-      // silently fail — will sync on next load
+      // silently fail
     }
   }
 
@@ -63,13 +77,15 @@ export default function Profile({ onBack }: ProfileProps) {
     setDeleting(true)
     try {
       await deleteProfile()
-      // Reload app — clears token, user starts fresh
       window.location.reload()
     } catch {
       setDeleting(false)
       setConfirmDelete(false)
     }
   }
+
+  const approvedPhotos = photos.filter(p => p.moderation_status === 'approved' && p.url)
+  const currentPhoto = approvedPhotos[photoIndex]
 
   const fields: { key: keyof ProfileData; label: string; format?: (v: unknown) => string }[] = [
     { key: 'name', label: 'Имя' },
@@ -115,17 +131,96 @@ export default function Profile({ onBack }: ProfileProps) {
           </div>
         ) : (
           <>
-            {/* Avatar placeholder */}
-            <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '28px' }}>
-              <div style={{
-                width: 88, height: 88, borderRadius: '24px',
-                background: 'var(--bg3)', border: '1px solid var(--l)',
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-                fontSize: '32px', color: 'var(--d3)',
-              }}>
-                {profile.name ? profile.name[0].toUpperCase() : '?'}
-              </div>
+            {/* Photo carousel or avatar */}
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', marginBottom: '28px' }}>
+              {approvedPhotos.length > 0 ? (
+                <div style={{ position: 'relative', width: '100%', maxWidth: 300 }}>
+                  <div style={{
+                    width: '100%', aspectRatio: '1', borderRadius: '20px',
+                    overflow: 'hidden', background: 'var(--bg3)', border: '1px solid var(--l)',
+                  }}>
+                    <img
+                      src={currentPhoto?.url}
+                      alt=""
+                      style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                    />
+                  </div>
+                  {approvedPhotos.length > 1 && (
+                    <>
+                      <div style={{ display: 'flex', justifyContent: 'center', gap: 6, marginTop: 10 }}>
+                        {approvedPhotos.map((_, i) => (
+                          <div
+                            key={i}
+                            onClick={() => setPhotoIndex(i)}
+                            style={{
+                              width: i === photoIndex ? 18 : 6, height: 6,
+                              borderRadius: 3, cursor: 'pointer',
+                              background: i === photoIndex ? 'var(--w)' : 'var(--d4)',
+                              transition: 'all .2s',
+                            }}
+                          />
+                        ))}
+                      </div>
+                      {photoIndex > 0 && (
+                        <button
+                          onClick={() => setPhotoIndex(i => i - 1)}
+                          style={{
+                            position: 'absolute', left: 8, top: '40%', transform: 'translateY(-50%)',
+                            background: 'rgba(0,0,0,.5)', border: 'none', borderRadius: '50%',
+                            width: 32, height: 32, color: 'white', cursor: 'pointer', fontSize: 20,
+                            display: 'flex', alignItems: 'center', justifyContent: 'center',
+                          }}
+                        >‹</button>
+                      )}
+                      {photoIndex < approvedPhotos.length - 1 && (
+                        <button
+                          onClick={() => setPhotoIndex(i => i + 1)}
+                          style={{
+                            position: 'absolute', right: 8, top: '40%', transform: 'translateY(-50%)',
+                            background: 'rgba(0,0,0,.5)', border: 'none', borderRadius: '50%',
+                            width: 32, height: 32, color: 'white', cursor: 'pointer', fontSize: 20,
+                            display: 'flex', alignItems: 'center', justifyContent: 'center',
+                          }}
+                        >›</button>
+                      )}
+                    </>
+                  )}
+                </div>
+              ) : (
+                <div style={{
+                  width: 88, height: 88, borderRadius: '24px',
+                  background: 'var(--bg3)', border: '1px solid var(--l)',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  fontSize: '32px', color: 'var(--d3)',
+                }}>
+                  {profile.name ? profile.name[0].toUpperCase() : '?'}
+                </div>
+              )}
             </div>
+
+            {/* Personality type */}
+            {profile.personality_type && (
+              <div style={{
+                marginBottom: '16px', padding: '14px 16px',
+                background: 'var(--bg3)', border: '1px solid var(--l)',
+                borderRadius: '14px',
+              }}>
+                <div style={{
+                  fontSize: '11px', fontWeight: 600, letterSpacing: '0.08em',
+                  textTransform: 'uppercase' as const, color: 'var(--d3)', marginBottom: '6px',
+                }}>
+                  Тип личности
+                </div>
+                <div style={{ fontSize: '15px', fontWeight: 500, color: 'var(--w)', marginBottom: 4 }}>
+                  {profile.personality_type}
+                </div>
+                {profile.profile_text && (
+                  <div style={{ fontSize: '13px', color: 'var(--d2)', lineHeight: 1.6 }}>
+                    {profile.profile_text}
+                  </div>
+                )}
+              </div>
+            )}
 
             {/* Fields */}
             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>

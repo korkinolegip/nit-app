@@ -63,27 +63,29 @@ export default function App() {
     return <Welcome onStart={openChat} />
   }
 
-  if (screen === 'matchChat' && matchId !== null) {
-    return <MatchChat matchId={matchId} onBack={backToChat} />
-  }
+  // Keep Chat always mounted to preserve message history.
+  // Other screens render on top as overlays.
+  return (
+    <>
+      <div style={{
+        display: screen === 'chat' ? 'flex' : 'none',
+        flexDirection: 'column', height: '100dvh', position: 'relative',
+      }}>
+        <Chat
+          onOpenMatch={openMatchChat}
+          onNavigateTo={setScreen}
+          isReturning={isReturning}
+          sessionComplete={sessionComplete}
+          hasPhotos={hasPhotos}
+        />
+      </div>
 
-  if (screen === 'discovery') {
-    return <Discovery onBack={backToChat} />
-  }
-
-  if (screen === 'profile') {
-    return <Profile onBack={backToChat} />
-  }
-
-  if (screen === 'matches') {
-    return <Matches onBack={backToChat} onOpenChat={openMatchChat} />
-  }
-
-  return <Chat
-    onOpenMatch={openMatchChat}
-    onNavigateTo={setScreen}
-    isReturning={isReturning}
-    sessionComplete={sessionComplete}
-    hasPhotos={hasPhotos}
-  />
+      {screen === 'matchChat' && matchId !== null && (
+        <MatchChat matchId={matchId} onBack={backToChat} />
+      )}
+      {screen === 'discovery' && <Discovery onBack={backToChat} />}
+      {screen === 'profile' && <Profile onBack={backToChat} />}
+      {screen === 'matches' && <Matches onBack={backToChat} onOpenChat={openMatchChat} />}
+    </>
+  )
 }

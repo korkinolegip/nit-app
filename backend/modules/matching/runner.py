@@ -97,7 +97,7 @@ async def run_matching_for_user(user_id: int, db: AsyncSession) -> int:
                 return
             explanation = await _get_ai_explanation(user, partner)
             if explanation:
-                match.explanation = explanation
+                match.explanation_text = explanation
                 await db.commit()
 
         await asyncio.gather(*[_enrich(m, pid) for m, pid in new_matches], return_exceptions=True)
