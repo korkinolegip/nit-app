@@ -169,49 +169,51 @@ async def seed_test_users(
     created = []
     errors = []
     for i, u in enumerate(TEST_USERS):
+        fake_tg_id = 9_000_000_000 + i + 1
         try:
-            fake_tg_id = 9_000_000_000 + i + 1
             existing = await db.execute(select(User).where(User.telegram_id == fake_tg_id))
             if existing.scalar_one_or_none():
                 continue
 
-            user = User(
-                telegram_id=fake_tg_id,
-                name=u["name"],
-                age=u["age"],
-                city=u["city"],
-                gender=u["gender"],
-                goal=u["goal"],
-                partner_preference=u["partner_preference"],
-                occupation=u["occupation"],
-                onboarding_step="complete",
-                is_active=True,
-                is_paused=False,
-            )
-            db.add(user)
-            await db.flush()
+            async with db.begin_nested():
+                user = User(
+                    telegram_id=fake_tg_id,
+                    name=u["name"],
+                    age=u["age"],
+                    city=u["city"],
+                    gender=u["gender"],
+                    goal=u["goal"],
+                    partner_preference=u["partner_preference"],
+                    occupation=u["occupation"],
+                    onboarding_step="complete",
+                    is_active=True,
+                    is_paused=False,
+                )
+                db.add(user)
+                await db.flush()
 
-            photo = Photo(
-                user_id=user.id,
-                storage_key=f"test/placeholder_{i}_{u['gender']}.jpg",
-                is_primary=True,
-                sort_order=0,
-                moderation_status="approved",
-            )
-            db.add(photo)
+                photo = Photo(
+                    user_id=user.id,
+                    storage_key=f"test/placeholder_{i}_{u['gender']}.jpg",
+                    is_primary=True,
+                    sort_order=0,
+                    moderation_status="approved",
+                )
+                db.add(photo)
 
-            session = InterviewSession(
-                user_id=user.id,
-                messages=[],
-                collected_data={"name": u["name"], "city": u["city"], "goal": u["goal"]},
-                missing_fields=[],
-                turn_count=3,
-                is_complete=True,
-            )
-            db.add(session)
+                interview = InterviewSession(
+                    user_id=user.id,
+                    messages=[],
+                    collected_data={"name": u["name"], "city": u["city"], "goal": u["goal"]},
+                    missing_fields=[],
+                    turn_count=3,
+                    is_complete=True,
+                )
+                db.add(interview)
+
             created.append(u["name"])
         except Exception as e:
-            errors.append(f"{u['name']}: {e}")
+            errors.append(f"{u['name']}: {str(e)[:120]}")
 
     if created:
         await db.commit()
