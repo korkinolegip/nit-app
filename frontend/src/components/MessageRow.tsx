@@ -169,6 +169,61 @@ export default function MessageRow({ message, onConfirmPortrait, onEditPortrait,
               ))}
             </div>
           </div>
+        ) : message.type === 'greeting' && message.greetingData ? (
+          <div style={{ width: '100%' }}>
+            {/* AI text bubble */}
+            <div style={{
+              fontSize: '15px', lineHeight: 1.65, fontWeight: 300, color: 'var(--d1)',
+              padding: '12px 16px', borderRadius: '16px', background: 'var(--bg3)',
+              border: '1px solid var(--l)', borderBottomLeftRadius: '4px', marginBottom: '10px',
+            }}>
+              {message.text}
+            </div>
+
+            {/* Scenario 1: activity tiles */}
+            {message.greetingData.tiles && message.greetingData.tiles.length > 0 && (
+              <div style={{ display: 'flex', gap: 8 }}>
+                {message.greetingData.tiles.map((tile, i) => (
+                  <div
+                    key={i}
+                    onClick={() => onNavigate?.(tile.screen)}
+                    style={{
+                      flex: 1, background: 'var(--bg3)', border: '1px solid var(--l)',
+                      borderRadius: 14, padding: '14px 8px', textAlign: 'center', cursor: 'pointer',
+                    }}
+                  >
+                    <div style={{ fontSize: 22 }}>{tile.icon}</div>
+                    <div style={{ fontSize: 22, fontWeight: 700, color: 'var(--w)', marginTop: 4, lineHeight: 1 }}>
+                      {tile.count}
+                    </div>
+                    <div style={{ fontSize: 10, color: 'var(--d4)', marginTop: 4 }}>{tile.label}</div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Scenario 2: menu buttons 2-column grid */}
+            {message.greetingData.menu_buttons && message.greetingData.menu_buttons.length > 0 && (
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                {message.greetingData.menu_buttons.map((btn, i) => (
+                  <button
+                    key={i}
+                    onClick={() => onNavigate?.(btn.screen)}
+                    style={{
+                      padding: '14px 10px', background: 'var(--bg3)',
+                      border: '1px solid var(--l)', borderRadius: 14,
+                      color: 'var(--d2)', fontSize: 12, fontWeight: 500,
+                      cursor: 'pointer', fontFamily: 'Inter',
+                      display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6,
+                    }}
+                  >
+                    <span style={{ fontSize: 22 }}>{btn.icon}</span>
+                    {btn.label}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
         ) : message.type === 'user_cards' && message.cardData?.cards ? (
           <div style={{ width: '100%' }}>
             {message.text && (

@@ -3,6 +3,7 @@ import json
 import logging
 from datetime import datetime, timedelta, timezone
 
+import httpx
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 from sqlalchemy import or_, select
@@ -10,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.middleware.auth import get_current_user
 from api.middleware.input_sanitizer import sanitize_user_message
+from core.config import settings
 from db.connection import get_db
 from modules.ai.interviewer import process_interview_turn, process_post_onboarding_turn
 from modules.ai.safety import check_message_safety
@@ -220,6 +222,156 @@ async def get_activity_summary(
         "new_views": new_views,
         "open_chats": len(open_matches),
         "has_activity": (new_matches + new_messages + new_views) > 0,
+    }
+
+
+@router.get("/greeting")
+async def get_greeting(
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Generate an AI greeting when the user returns to the app (>15 min away)."""
+    now = datetime.now(timezone.utc)
+
+    if user.last_seen and (now - user.last_seen).total_seconds() < 900:
+        return {"should_greet": False}
+
+    since = user.last_seen or (now - timedelta(hours=24))
+    away_hours = max(1, int((now - since).total_seconds() / 3600))
+
+    # New matches with partner names
+    matches_result = await db.execute(
+        select(Match).where(
+            or_(Match.user1_id == user.id, Match.user2_id == user.id),
+            Match.created_at > since,
+        )
+    )
+    new_matches_list = list(matches_result.scalars().all())
+    new_match_names: list[str] = []
+    for m in new_matches_list[:3]:
+        partner_id = m.user2_id if m.user1_id == user.id else m.user1_id
+        partner = await db.get(User, partner_id)
+        if partner and partner.name:
+            new_match_names.append(partner.name)
+
+    # Open chats with new messages + sender names
+    open_matches_result = await db.execute(
+        select(Match).where(
+            or_(Match.user1_id == user.id, Match.user2_id == user.id),
+            Match.chat_status.in_(["open", "matched", "exchanged"]),
+        )
+    )
+    open_matches = list(open_matches_result.scalars().all())
+    new_messages_count = 0
+    new_message_senders: list[str] = []
+    for m in open_matches:
+        partner_id = m.user2_id if m.user1_id == user.id else m.user1_id
+        msgs_result = await db.execute(
+            select(MatchMessage).where(
+                MatchMessage.match_id == m.id,
+                MatchMessage.sender_id == partner_id,
+                MatchMessage.created_at > since,
+                MatchMessage.content_type != "system",
+            ).limit(1)
+        )
+        if msgs_result.scalar_one_or_none():
+            new_messages_count += 1
+            if len(new_message_senders) < 2:
+                partner = await db.get(User, partner_id)
+                if partner and partner.name:
+                    new_message_senders.append(partner.name)
+
+    # New profile views (deduplicated by viewer)
+    views_result = await db.execute(
+        select(ProfileView).where(
+            ProfileView.viewed_id == user.id,
+            ProfileView.seen_at > since,
+        )
+    )
+    views_list = list(views_result.scalars().all())
+    seen_viewer_ids: set[int] = set()
+    for v in views_list:
+        seen_viewer_ids.add(v.viewer_id)
+    new_views = len(seen_viewer_ids)
+
+    has_activity = (len(new_matches_list) + new_messages_count + new_views) > 0
+
+    tiles: list[dict] = []
+    menu_buttons: list[dict] = []
+
+    if has_activity:
+        context_parts: list[str] = []
+        if new_matches_list:
+            names = ", ".join(new_match_names) if new_match_names else ""
+            context_parts.append(
+                f"новых матчей: {len(new_matches_list)}" + (f" ({names})" if names else "")
+            )
+        if new_messages_count:
+            senders = ", ".join(new_message_senders) if new_message_senders else ""
+            context_parts.append(
+                f"новых сообщений в чатах: {new_messages_count}" + (f" от {senders}" if senders else "")
+            )
+        if new_views:
+            context_parts.append(f"просмотров профиля: {new_views}")
+
+        prompt = (
+            f"Ты — AI-агент приложения для знакомств «Нить». Пользователь вернулся после {away_hours} ч. отсутствия.\n"
+            "Напиши ОДНО живое сообщение (2-3 предложения, на «ты», по-русски) о том что произошло пока его не было.\n"
+            "Используй конкретные цифры и имена из данных. Варьируй тон — иногда с лёгким юмором, иногда деловито.\n"
+            "В конце — короткий призыв к действию. Без кавычек. Без markdown.\n\n"
+            f"Данные: {'; '.join(context_parts)}."
+        )
+
+        if new_matches_list:
+            tiles.append({"icon": "💛", "label": "Матчи", "screen": "matches", "count": len(new_matches_list)})
+        if new_messages_count:
+            tiles.append({"icon": "💬", "label": "Чаты", "screen": "chats", "count": new_messages_count})
+        if new_views:
+            tiles.append({"icon": "👁", "label": "Просмотры", "screen": "views", "count": new_views})
+    else:
+        prompt = (
+            "Ты — AI-агент приложения для знакомств «Нить».\n"
+            "Пользователь открыл приложение, новых событий нет.\n"
+            "Напиши ОДНО живое короткое сообщение (1-2 предложения, на «ты», по-русски) чтобы мотивировать или заинтриговать.\n"
+            "Каждый раз РАЗНАЯ тональность: иногда юмор, иногда совет, иногда вопрос, иногда интрига.\n"
+            "Закончи двоеточием или вопросом, намекая что ниже есть варианты действий.\n"
+            "Без кавычек. Без markdown."
+        )
+        menu_buttons = [
+            {"icon": "👥", "label": "Смотреть людей", "screen": "matches"},
+            {"icon": "✏️", "label": "Обновить профиль", "screen": "profile"},
+            {"icon": "👁", "label": "Кто смотрел", "screen": "views"},
+            {"icon": "💬", "label": "Мои чаты", "screen": "chats"},
+        ]
+
+    text: str | None = None
+    if settings.GROQ_API_KEY:
+        try:
+            async with httpx.AsyncClient(timeout=10) as client:
+                r = await client.post(
+                    "https://api.groq.com/openai/v1/chat/completions",
+                    headers={"Authorization": f"Bearer {settings.GROQ_API_KEY}"},
+                    json={
+                        "model": "llama-3.3-70b-versatile",
+                        "messages": [{"role": "user", "content": prompt}],
+                        "max_tokens": 120,
+                        "temperature": 0.9,
+                    },
+                )
+                if r.status_code == 200:
+                    text = r.json()["choices"][0]["message"]["content"].strip()
+        except Exception as e:
+            logger.warning(f"Greeting generation failed: {e}")
+
+    if not text:
+        text = "Пока тебя не было, кое-что произошло. С чего начнём?" if has_activity else "Тихий день — но это не повод скучать. Вот что можно сделать:"
+
+    return {
+        "should_greet": True,
+        "has_activity": has_activity,
+        "text": text,
+        "tiles": tiles,
+        "menu_buttons": menu_buttons,
     }
 
 

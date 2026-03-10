@@ -5,7 +5,7 @@ import QuickReplies from '../components/QuickReplies'
 import InputBar from '../components/InputBar'
 import SettingsSheet from '../components/SettingsSheet'
 import MenuSheet from '../components/MenuSheet'
-import { transcribeVoice, getChatHistory, pingActivity, getActivitySummary } from '../api/chat'
+import { transcribeVoice, getChatHistory, pingActivity, getGreeting } from '../api/chat'
 import { uploadPhoto } from '../api/profile'
 import { matchAction } from '../api/matches'
 
@@ -37,6 +37,9 @@ export default function Chat({ onOpenMatch, onNavigateTo, isReturning = false, s
   const [isMenuOpen, setIsMenuOpen] = useState(false)
   const [isNavOpen, setIsNavOpen] = useState(false)
   const [viewingCard, setViewingCard] = useState<CardItem | null>(null)
+  const lastGreetAtRef = useRef(0) // timestamp of last injected greeting
+  const messagesRef = useRef(messages)
+  messagesRef.current = messages
 
   // Heartbeat — keep last_seen fresh while app is open
   useEffect(() => {
@@ -45,6 +48,32 @@ export default function Chat({ onOpenMatch, onNavigateTo, isReturning = false, s
     const interval = setInterval(() => pingActivity().catch(() => {}), 120_000)
     return () => clearInterval(interval)
   }, [isReturning])
+
+  // Re-greet when user returns from background/another tab (>15 min away)
+  useEffect(() => {
+    if (!isReturning || !sessionComplete) return
+    const handleVisibility = async () => {
+      if (document.visibilityState !== 'visible') return
+      // Client-side guard: don't greet if we greeted within last 15 min
+      if (Date.now() - lastGreetAtRef.current < 900_000) return
+      // Don't inject if last message is already a greeting
+      const last = messagesRef.current[messagesRef.current.length - 1]
+      if (last?.type === 'greeting') return
+      try {
+        const greeting = await getGreeting()
+        if (!greeting.should_greet) return
+        lastGreetAtRef.current = Date.now()
+        addMessage({
+          sender: 'ai',
+          text: greeting.text || '',
+          type: 'greeting',
+          greetingData: { tiles: greeting.tiles, menu_buttons: greeting.menu_buttons },
+        })
+      } catch { /* ignore */ }
+    }
+    document.addEventListener('visibilitychange', handleVisibility)
+    return () => document.removeEventListener('visibilitychange', handleVisibility)
+  }, [isReturning, sessionComplete, addMessage])
 
   // Initial greeting / history restore
   useEffect(() => {
@@ -74,30 +103,22 @@ export default function Chat({ onOpenMatch, onNavigateTo, isReturning = false, s
               addMessage({ sender: 'ai', text: 'Продолжим? Расскажи о себе — что ещё хочешь добавить.', type: 'text' })
             }
           }
-          // Show activity summary if returning with a complete profile
+          // Show AI greeting if returning with a complete profile
           if (sessionComplete) {
-            getActivitySummary().then(activity => {
-              if (activity.has_activity) {
-                const parts: string[] = []
-                if (activity.new_matches > 0) parts.push(`${activity.new_matches} новых матчей`)
-                if (activity.new_messages > 0) parts.push(`${activity.new_messages} непрочитанных сообщений`)
-                if (activity.new_views > 0) parts.push(`${activity.new_views} просмотров профиля`)
-                const summary = parts.length > 0
-                  ? `Пока тебя не было: ${parts.join(', ')}.`
-                  : 'Есть новое активность — загляни в разделы.'
-                setTimeout(() => {
-                  addMessage({
-                    sender: 'ai',
-                    text: summary,
-                    type: 'activity_summary',
-                    cardData: {
-                      new_matches: activity.new_matches,
-                      new_messages: activity.new_messages,
-                      new_views: activity.new_views,
-                    },
-                  })
-                }, 800)
-              }
+            getGreeting().then(greeting => {
+              if (!greeting.should_greet) return
+              lastGreetAtRef.current = Date.now()
+              setTimeout(() => {
+                addMessage({
+                  sender: 'ai',
+                  text: greeting.text || '',
+                  type: 'greeting',
+                  greetingData: {
+                    tiles: greeting.tiles,
+                    menu_buttons: greeting.menu_buttons,
+                  },
+                })
+              }, 800)
             }).catch(() => {})
           }
         })

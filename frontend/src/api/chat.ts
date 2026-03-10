@@ -49,6 +49,31 @@ export async function getActivitySummary(): Promise<ActivitySummary> {
   return apiRequest('/api/chat/activity')
 }
 
+export interface GreetingTile {
+  icon: string
+  label: string
+  screen: string
+  count: number
+}
+
+export interface GreetingMenuButton {
+  icon: string
+  label: string
+  screen: string
+}
+
+export interface GreetingResponse {
+  should_greet: boolean
+  has_activity?: boolean
+  text?: string
+  tiles?: GreetingTile[]
+  menu_buttons?: GreetingMenuButton[]
+}
+
+export async function getGreeting(): Promise<GreetingResponse> {
+  return apiRequest('/api/chat/greeting')
+}
+
 export async function transcribeVoice(file: Blob): Promise<{ text: string; duration_seconds: number }> {
   const ext = file.type.includes('mp4') ? 'audio.mp4' : file.type.includes('ogg') ? 'audio.ogg' : 'audio.webm'
   const formData = new FormData()

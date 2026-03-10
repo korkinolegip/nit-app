@@ -5,10 +5,14 @@ export interface Message {
   id: number
   sender: 'ai' | 'me'
   text: string
-  type: 'text' | 'voice' | 'portrait_card' | 'match_card' | 'photo_prompt' | 'user_cards' | 'activity_summary' | 'action_buttons'
+  type: 'text' | 'voice' | 'portrait_card' | 'match_card' | 'photo_prompt' | 'user_cards' | 'activity_summary' | 'action_buttons' | 'greeting'
   cardData?: Record<string, any>
   voiceDuration?: string
   actionButtons?: { label: string; screen: string }[]
+  greetingData?: {
+    tiles?: { icon: string; label: string; screen: string; count: number }[]
+    menu_buttons?: { icon: string; label: string; screen: string }[]
+  }
 }
 
 export function useChat(opts?: { onNavigate?: (screen: 'discovery' | 'matches' | 'chats' | 'views' | 'profile') => void }) {
