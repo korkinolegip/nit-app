@@ -167,52 +167,55 @@ async def seed_test_users(
         raise HTTPException(403, "Invalid secret")
 
     created = []
+    errors = []
     for i, u in enumerate(TEST_USERS):
-        fake_tg_id = 9_000_000_000 + i + 1
-        existing = await db.execute(select(User).where(User.telegram_id == fake_tg_id))
-        if existing.scalar_one_or_none():
-            continue
+        try:
+            fake_tg_id = 9_000_000_000 + i + 1
+            existing = await db.execute(select(User).where(User.telegram_id == fake_tg_id))
+            if existing.scalar_one_or_none():
+                continue
 
-        user = User(
-            telegram_id=fake_tg_id,
-            name=u["name"],
-            age=u["age"],
-            city=u["city"],
-            gender=u["gender"],
-            goal=u["goal"],
-            partner_preference=u["partner_preference"],
-            occupation=u["occupation"],
-            onboarding_step="complete",
-            is_active=True,
-            is_paused=False,
-        )
-        db.add(user)
-        await db.flush()
+            user = User(
+                telegram_id=fake_tg_id,
+                name=u["name"],
+                age=u["age"],
+                city=u["city"],
+                gender=u["gender"],
+                goal=u["goal"],
+                partner_preference=u["partner_preference"],
+                occupation=u["occupation"],
+                onboarding_step="complete",
+                is_active=True,
+                is_paused=False,
+            )
+            db.add(user)
+            await db.flush()
 
-        # Fake approved photo
-        photo = Photo(
-            user_id=user.id,
-            storage_key=f"test/placeholder_{u['gender']}.jpg",
-            is_primary=True,
-            sort_order=0,
-            moderation_status="approved",
-        )
-        db.add(photo)
+            photo = Photo(
+                user_id=user.id,
+                storage_key=f"test/placeholder_{u['gender']}.jpg",
+                is_primary=True,
+                sort_order=0,
+                moderation_status="approved",
+            )
+            db.add(photo)
 
-        # Fake completed interview session
-        session = InterviewSession(
-            user_id=user.id,
-            messages=[],
-            collected_data={"name": u["name"], "city": u["city"], "goal": u["goal"]},
-            missing_fields=[],
-            turn_count=3,
-            is_complete=True,
-        )
-        db.add(session)
-        created.append(u["name"])
+            session = InterviewSession(
+                user_id=user.id,
+                messages=[],
+                collected_data={"name": u["name"], "city": u["city"], "goal": u["goal"]},
+                missing_fields=[],
+                turn_count=3,
+                is_complete=True,
+            )
+            db.add(session)
+            created.append(u["name"])
+        except Exception as e:
+            errors.append(f"{u['name']}: {e}")
 
-    await db.commit()
-    return {"created": created, "total": len(created)}
+    if created:
+        await db.commit()
+    return {"created": created, "total": len(created), "errors": errors}
 
 
 @router.post("/run-matching/{user_id}")
