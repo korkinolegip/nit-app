@@ -32,3 +32,14 @@ export async function matchAction(matchId: number, action: 'like' | 'skip') {
     body: JSON.stringify({ action }),
   })
 }
+
+export async function getMatchMessages(matchId: number) {
+  return apiRequest(`/api/match-chat/${matchId}/messages`)
+}
+
+export async function sendMatchMessage(matchId: number, text: string) {
+  return apiRequest(`/api/match-chat/${matchId}/send`, {
+    method: 'POST',
+    body: JSON.stringify({ text }),
+  })
+}
