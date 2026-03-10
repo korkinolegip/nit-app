@@ -193,7 +193,7 @@ async def seed_test_users(
 
             photo = Photo(
                 user_id=user.id,
-                storage_key=f"test/placeholder_{u['gender']}.jpg",
+                storage_key=f"test/placeholder_{i}_{u['gender']}.jpg",
                 is_primary=True,
                 sort_order=0,
                 moderation_status="approved",
