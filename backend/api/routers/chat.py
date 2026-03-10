@@ -159,6 +159,12 @@ async def send_message(
             reply_type="text",
         )
 
+    # If session was force-completed by turn limit, treat as interview_complete
+    if session.is_complete and not result.get("interview_complete"):
+        result["interview_complete"] = True
+        if not result.get("collected"):
+            result["collected"] = session.collected_data or {}
+
     if result.get("interview_complete"):
         user.onboarding_step = "questionnaire"
         user.raw_intro_text = text
