@@ -15,16 +15,16 @@ from modules.users.models import InterviewSession, ModerationLog, Photo, Report,
 router = APIRouter(prefix="/api/admin", tags=["admin"])
 
 TEST_USERS = [
-    {"name": "Анна", "age": 25, "city": "Москва", "gender": "female", "goal": "romantic", "partner_preference": "male", "occupation": "Дизайнер"},
-    {"name": "Мария", "age": 27, "city": "Москва", "gender": "female", "goal": "romantic", "partner_preference": "male", "occupation": "Маркетолог"},
-    {"name": "Екатерина", "age": 24, "city": "Москва", "gender": "female", "goal": "friendship", "partner_preference": "any", "occupation": "Психолог"},
-    {"name": "Алина", "age": 29, "city": "Санкт-Петербург", "gender": "female", "goal": "romantic", "partner_preference": "male", "occupation": "Архитектор"},
-    {"name": "Дарья", "age": 26, "city": "Москва", "gender": "female", "goal": "open", "partner_preference": "any", "occupation": "Фотограф"},
-    {"name": "Дмитрий", "age": 28, "city": "Москва", "gender": "male", "goal": "romantic", "partner_preference": "female", "occupation": "Разработчик"},
-    {"name": "Алексей", "age": 30, "city": "Москва", "gender": "male", "goal": "romantic", "partner_preference": "female", "occupation": "Предприниматель"},
-    {"name": "Иван", "age": 27, "city": "Москва", "gender": "male", "goal": "friendship", "partner_preference": "any", "occupation": "Журналист"},
-    {"name": "Сергей", "age": 32, "city": "Санкт-Петербург", "gender": "male", "goal": "romantic", "partner_preference": "female", "occupation": "Врач"},
-    {"name": "Максим", "age": 26, "city": "Москва", "gender": "male", "goal": "open", "partner_preference": "any", "occupation": "Музыкант"},
+    {"name": "Анна", "age": 25, "city": "Воронеж", "gender": "female", "goal": "romantic", "partner_preference": "male", "occupation": "Дизайнер"},
+    {"name": "Мария", "age": 27, "city": "Воронеж", "gender": "female", "goal": "romantic", "partner_preference": "male", "occupation": "Маркетолог"},
+    {"name": "Екатерина", "age": 24, "city": "Воронеж", "gender": "female", "goal": "friendship", "partner_preference": "any", "occupation": "Психолог"},
+    {"name": "Алина", "age": 29, "city": "Воронеж", "gender": "female", "goal": "romantic", "partner_preference": "male", "occupation": "Архитектор"},
+    {"name": "Дарья", "age": 26, "city": "Воронеж", "gender": "female", "goal": "open", "partner_preference": "any", "occupation": "Фотограф"},
+    {"name": "Дмитрий", "age": 28, "city": "Воронеж", "gender": "male", "goal": "romantic", "partner_preference": "female", "occupation": "Разработчик"},
+    {"name": "Алексей", "age": 30, "city": "Воронеж", "gender": "male", "goal": "romantic", "partner_preference": "female", "occupation": "Предприниматель"},
+    {"name": "Иван", "age": 27, "city": "Воронеж", "gender": "male", "goal": "friendship", "partner_preference": "any", "occupation": "Журналист"},
+    {"name": "Сергей", "age": 32, "city": "Воронеж", "gender": "male", "goal": "romantic", "partner_preference": "female", "occupation": "Врач"},
+    {"name": "Максим", "age": 26, "city": "Воронеж", "gender": "male", "goal": "open", "partner_preference": "any", "occupation": "Музыкант"},
 ]
 
 
