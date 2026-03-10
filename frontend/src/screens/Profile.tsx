@@ -41,6 +41,7 @@ export default function Profile({ onBack }: ProfileProps) {
   const [editValue, setEditValue] = useState('')
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [deleting, setDeleting] = useState(false)
+  const [deleteError, setDeleteError] = useState(false)
   const [uploadingPhoto, setUploadingPhoto] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
@@ -77,12 +78,14 @@ export default function Profile({ onBack }: ProfileProps) {
       return
     }
     setDeleting(true)
+    setDeleteError(false)
     try {
       await deleteProfile()
       window.location.reload()
     } catch {
       setDeleting(false)
       setConfirmDelete(false)
+      setDeleteError(true)
     }
   }
 
@@ -377,6 +380,11 @@ export default function Profile({ onBack }: ProfileProps) {
             {confirmDelete && !deleting && (
               <p style={{ textAlign: 'center', fontSize: '12px', color: 'var(--d3)', marginTop: '8px' }}>
                 Все данные и фото будут удалены. Нажми ещё раз для подтверждения.
+              </p>
+            )}
+            {deleteError && (
+              <p style={{ textAlign: 'center', fontSize: '12px', color: '#ff5050', marginTop: '8px' }}>
+                Не удалось удалить профиль. Попробуй ещё раз.
               </p>
             )}
           </>

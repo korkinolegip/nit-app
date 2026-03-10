@@ -224,6 +224,9 @@ async def delete_profile(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
+    from sqlalchemy import text
+
+    # Delete photos from S3 storage
     photos = await get_user_photos(db, user.id)
     for photo in photos:
         try:
@@ -231,6 +234,18 @@ async def delete_profile(
         except Exception:
             pass
 
+    uid = user.id
+    # Delete tables without CASCADE on user FK (order matters: dependents first)
+    await db.execute(text("DELETE FROM reports WHERE reporter_id = :uid OR reported_id = :uid"), {"uid": uid})
+    await db.execute(text("DELETE FROM consent_log WHERE user_id = :uid"), {"uid": uid})
+    await db.execute(text("DELETE FROM date_feedback WHERE user_id = :uid"), {"uid": uid})
+    await db.execute(text("DELETE FROM chat_analysis WHERE for_user_id = :uid"), {"uid": uid})
+    await db.execute(text("DELETE FROM contact_exchange WHERE user_id = :uid"), {"uid": uid})
+    # Matches: cascade will handle match_messages, contact_exchange, chat_analysis, chat_reports
+    await db.execute(text("DELETE FROM matches WHERE user1_id = :uid OR user2_id = :uid"), {"uid": uid})
+
+    # Delete user — DB CASCADE handles: photos, interview_sessions, user_embeddings,
+    # block_list, daily_match_quota, aggregated_impressions, answers
     await db.delete(user)
     await db.commit()
     return {"status": "deleted"}
