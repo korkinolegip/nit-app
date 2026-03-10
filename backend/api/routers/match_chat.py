@@ -88,6 +88,7 @@ async def get_messages(
             }
             for m in reversed(messages)
         ],
+        "my_user_id": user.id,
         "chat_status": match.chat_status,
         "deadline": match.chat_deadline.isoformat() if match.chat_deadline else None,
         "compatibility_score": match.compatibility_score or 0,
@@ -120,7 +121,7 @@ async def send_message(
         raise HTTPException(404, "Match not found")
     if user.id not in (match.user1_id, match.user2_id):
         raise HTTPException(403, "Not your match")
-    if match.chat_status not in ("open",):
+    if match.chat_status not in ("open", "matched", "exchanged"):
         raise HTTPException(403, "Chat is not open")
 
     msg = MatchMessage(

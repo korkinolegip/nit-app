@@ -176,29 +176,32 @@ async def match_action(
     else:
         raise HTTPException(403, "Not your match")
 
-    # Check for mutual match
     mutual = False
     date_prep = None
     match_chat_id = None
 
-    if match.user1_action == "like" and match.user2_action == "like":
-        mutual = True
-        match.status = "matched"
-        match.matched_at = datetime.now(timezone.utc)
-        match.chat_status = "open"
-        match.chat_opened_at = datetime.now(timezone.utc)
-        match.chat_deadline = datetime.now(timezone.utc) + timedelta(
-            hours=settings.MATCH_CHAT_HOURS
-        )
+    if body.action == "like":
+        # Open chat immediately on first like (no mutual requirement for MVP)
+        if match.chat_status != "open":
+            match.chat_status = "open"
+            match.chat_opened_at = datetime.now(timezone.utc)
+            match.chat_deadline = datetime.now(timezone.utc) + timedelta(
+                hours=settings.MATCH_CHAT_HOURS
+            )
         match_chat_id = match.id
 
-        partner_id = match.user2_id if match.user1_id == user.id else match.user1_id
-        partner = await db.get(User, partner_id)
+        # Mutual match: both liked
+        if match.user1_action == "like" and match.user2_action == "like":
+            mutual = True
+            match.status = "matched"
+            match.matched_at = datetime.now(timezone.utc)
 
-        await db.commit()
+    partner_id = match.user2_id if match.user1_id == user.id else match.user1_id
+    partner = await db.get(User, partner_id)
+    await db.commit()
 
-        if partner:
-            # Generate explanation and date prep concurrently
+    if body.action == "like" and partner:
+        if mutual:
             explanation, date_prep = await asyncio.gather(
                 _generate_explanation(user, partner),
                 _generate_date_prep(user, partner),
@@ -206,21 +209,26 @@ async def match_action(
             if explanation:
                 match.explanation_text = explanation
                 await db.commit()
-
-            # Notify both users
             hours = settings.MATCH_CHAT_HOURS
             await asyncio.gather(
                 send_notification(
                     user.telegram_id,
-                    f"🎉 Взаимный матч с {partner.name}! У вас {hours} часов чтобы познакомиться — открой приложение.",
+                    f"🎉 Взаимный матч с {partner.name}! У вас {hours} часов — открой приложение.",
                 ),
                 send_notification(
                     partner.telegram_id,
-                    f"🎉 Взаимный матч с {user.name}! У вас {hours} часов чтобы познакомиться — открой приложение.",
+                    f"🎉 Взаимный матч с {user.name}! У вас {hours} часов — открой приложение.",
                 ),
             )
-    else:
-        await db.commit()
+        else:
+            # Notify partner they have an interested person
+            try:
+                await send_notification(
+                    partner.telegram_id,
+                    f"💌 {user.name} хочет познакомиться! Открой приложение чтобы ответить.",
+                )
+            except Exception:
+                pass
 
     return {
         "mutual_match": mutual,

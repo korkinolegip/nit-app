@@ -23,6 +23,7 @@ export default function MatchChat({ matchId, onBack }: MatchChatProps) {
   const [chatStatus, setChatStatus] = useState('')
   const [deadline, setDeadline] = useState('')
   const [showProfile, setShowProfile] = useState(false)
+  const [myUserId, setMyUserId] = useState<number | null>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
 
   const loadMessages = useCallback(async () => {
@@ -34,6 +35,7 @@ export default function MatchChat({ matchId, onBack }: MatchChatProps) {
       setExplanation(data.explanation)
       setChatStatus(data.chat_status)
       setDeadline(data.deadline || '')
+      if (data.my_user_id) setMyUserId(data.my_user_id)
     } catch {
       console.error('Failed to load messages')
     }
@@ -135,33 +137,36 @@ export default function MatchChat({ matchId, onBack }: MatchChatProps) {
         display: 'flex', flexDirection: 'column', gap: 10,
         background: 'var(--bg)',
       }}>
-        {messages.map(msg => (
-          <div key={msg.id} style={{
-            display: 'flex',
-            justifyContent: msg.sender_id === 0 ? 'flex-start' : 'flex-end',
-            animation: 'mp 0.28s ease both',
-          }}>
-            <div style={{ maxWidth: '86%', display: 'flex', flexDirection: 'column' }}>
-              <div style={{
-                fontSize: 15, lineHeight: 1.65, fontWeight: 300, color: 'var(--d1)',
-                padding: '12px 16px', borderRadius: 16,
-                background: msg.sender_id === 0 ? 'var(--bg3)' : 'var(--bg4)',
-                border: `1px solid ${msg.sender_id === 0 ? 'var(--l)' : 'var(--l2)'}`,
-                borderBottomLeftRadius: msg.sender_id === 0 ? 4 : 16,
-                borderBottomRightRadius: msg.sender_id === 0 ? 16 : 4,
-              }}>
-                {msg.text || '[голосовое сообщение]'}
-              </div>
-              <div style={{ fontSize: 10, color: 'var(--d3)', marginTop: 4 }}>
-                {new Date(msg.created_at).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}
+        {messages.map(msg => {
+          const isMe = myUserId !== null ? msg.sender_id === myUserId : false
+          return (
+            <div key={msg.id} style={{
+              display: 'flex',
+              justifyContent: isMe ? 'flex-end' : 'flex-start',
+              animation: 'mp 0.28s ease both',
+            }}>
+              <div style={{ maxWidth: '86%', display: 'flex', flexDirection: 'column', alignItems: isMe ? 'flex-end' : 'flex-start' }}>
+                <div style={{
+                  fontSize: 15, lineHeight: 1.65, fontWeight: 300, color: 'var(--d1)',
+                  padding: '12px 16px', borderRadius: 16,
+                  background: isMe ? 'var(--bg4)' : 'var(--bg3)',
+                  border: `1px solid ${isMe ? 'var(--l2)' : 'var(--l)'}`,
+                  borderBottomLeftRadius: isMe ? 16 : 4,
+                  borderBottomRightRadius: isMe ? 4 : 16,
+                }}>
+                  {msg.text || '[голосовое сообщение]'}
+                </div>
+                <div style={{ fontSize: 10, color: 'var(--d3)', marginTop: 4 }}>
+                  {new Date(msg.created_at).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}
+                </div>
               </div>
             </div>
-          </div>
-        ))}
+          )
+        })}
       </div>
 
       {/* Input */}
-      {chatStatus === 'open' ? (
+      {['open', 'matched', 'exchanged'].includes(chatStatus) ? (
         <InputBar onSendText={handleSend} onSendVoice={async () => {}} />
       ) : (
         <div style={{
@@ -170,7 +175,6 @@ export default function MatchChat({ matchId, onBack }: MatchChatProps) {
         }}>
           {chatStatus === 'closed' ? 'Время чата истекло' :
            chatStatus === 'frozen' ? 'Чат заморожен' :
-           chatStatus === 'exchanged' ? 'Контакты обменяны' :
            'Чат недоступен'}
         </div>
       )}
