@@ -218,6 +218,22 @@ async def seed_test_users(
     return {"created": created, "total": len(created), "errors": errors}
 
 
+@router.get("/check-schema")
+async def check_schema(secret: str = Query(...), db: AsyncSession = Depends(get_db)):
+    """Check if DB schema has occupation column."""
+    if secret != settings.WEBHOOK_SECRET:
+        raise HTTPException(403, "Admin access required")
+    from sqlalchemy import text
+    result = await db.execute(text(
+        "SELECT column_name FROM information_schema.columns "
+        "WHERE table_name='users' AND column_name='occupation'"
+    ))
+    has_col = result.fetchone() is not None
+    result2 = await db.execute(text("SELECT COUNT(*) FROM users WHERE telegram_id >= 9000000000"))
+    test_count = result2.scalar()
+    return {"occupation_column_exists": has_col, "test_users_count": test_count}
+
+
 @router.post("/run-matching/{user_id}")
 async def trigger_matching(
     user_id: int,
