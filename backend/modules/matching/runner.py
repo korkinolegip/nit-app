@@ -1,4 +1,3 @@
-import asyncio
 import logging
 
 import httpx
@@ -19,7 +18,7 @@ async def _get_ai_explanation(user_a: User, user_b: User) -> str | None:
         return None
 
     def _profile(u: User) -> str:
-        parts = [f"{u.name}, {u.age} лет, {u.city}"]
+        parts = [f"{u.name or '?'}, {u.age or '?'} лет, {u.city or '?'}"]
         if u.goal:
             goals = {"romantic": "романтические отношения", "friendship": "дружба", "open": "открыт к общению"}
             parts.append(f"ищет: {goals.get(u.goal, u.goal)}")
@@ -36,7 +35,7 @@ async def _get_ai_explanation(user_a: User, user_b: User) -> str | None:
         f"Человек B: {_profile(user_b)}"
     )
     try:
-        async with httpx.AsyncClient(timeout=15) as client:
+        async with httpx.AsyncClient(timeout=10) as client:
             r = await client.post(
                 "https://api.groq.com/openai/v1/chat/completions",
                 headers={"Authorization": f"Bearer {settings.GROQ_API_KEY}"},
@@ -54,15 +53,22 @@ async def _get_ai_explanation(user_a: User, user_b: User) -> str | None:
     return None
 
 
-async def run_matching_for_user(user_id: int, db: AsyncSession, require_active: bool = True, all_genders: bool = False) -> int:
+async def run_matching_for_user(
+    user_id: int,
+    db: AsyncSession,
+    require_active: bool = True,
+    all_genders: bool = False,
+) -> int:
     """Find candidates and create pending Match records. Returns count created."""
     user = await db.get(User, user_id)
     if not user:
         return 0
 
-    candidates = await find_match_candidates(user_id, db, require_active=require_active, all_genders=all_genders)
+    candidates = await find_match_candidates(
+        user_id, db, require_active=require_active, all_genders=all_genders
+    )
     created = 0
-    new_matches: list[tuple[Match, int]] = []
+    new_match_ids: list[tuple[int, int, int]] = []  # (match_id, partner_id, match_db_id)
 
     for partner_id, score in candidates:
         existing = await db.execute(
@@ -83,36 +89,38 @@ async def run_matching_for_user(user_id: int, db: AsyncSession, require_active: 
             status="pending",
         )
         db.add(match)
-        new_matches.append((match, partner_id))
+        await db.flush()  # get match.id without committing
+        new_match_ids.append((match.id, partner_id))
         created += 1
 
     if created > 0:
         await db.commit()
         logger.info(f"Created {created} matches for user {user_id}")
 
-        # Generate AI explanations for all new matches concurrently
-        async def _enrich(match: Match, partner_id: int):
-            partner = await db.get(User, partner_id)
-            if not partner:
-                return
-            explanation = await _get_ai_explanation(user, partner)
-            if explanation:
-                match.explanation_text = explanation
-                await db.commit()
+        # Generate AI explanations sequentially (avoids concurrent session conflicts)
+        for match_id, partner_id in new_match_ids:
+            try:
+                partner = await db.get(User, partner_id)
+                if not partner:
+                    continue
+                explanation = await _get_ai_explanation(user, partner)
+                if explanation:
+                    match_obj = await db.get(Match, match_id)
+                    if match_obj:
+                        match_obj.explanation_text = explanation
+                        await db.commit()
+            except Exception as e:
+                logger.warning(f"Explanation failed for match {match_id}: {e}")
+                continue
 
-        await asyncio.gather(*[_enrich(m, pid) for m, pid in new_matches], return_exceptions=True)
-
-        # Notify user via Telegram bot
-        if created == 1:
-            count_text = "новый матч"
-        elif created < 5:
-            count_text = f"{created} новых матча"
-        else:
-            count_text = f"{created} новых матчей"
-
-        await send_notification(
-            user.telegram_id,
-            f"✨ У тебя {count_text}! Открой приложение, чтобы посмотреть."
-        )
+        # Notify user via Telegram
+        try:
+            count_text = "новый матч" if created == 1 else f"{created} новых матча" if created < 5 else f"{created} новых матчей"
+            await send_notification(
+                user.telegram_id,
+                f"✨ У тебя {count_text}! Открой приложение, чтобы посмотреть."
+            )
+        except Exception as e:
+            logger.warning(f"Telegram notification failed: {e}")
 
     return created

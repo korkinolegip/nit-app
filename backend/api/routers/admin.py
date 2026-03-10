@@ -293,3 +293,28 @@ async def list_users(
         }
         for u in users
     ]}
+
+
+@router.patch("/users/{user_id}")
+async def patch_user(
+    user_id: int,
+    secret: str = Query(...),
+    db: AsyncSession = Depends(get_db),
+    partner_preference: str | None = None,
+    goal: str | None = None,
+    is_active: bool | None = None,
+):
+    """Patch user fields for debugging/fixing data."""
+    if secret != settings.WEBHOOK_SECRET:
+        raise HTTPException(403, "Invalid secret")
+    user = await db.get(User, user_id)
+    if not user:
+        raise HTTPException(404, "User not found")
+    if partner_preference is not None:
+        user.partner_preference = partner_preference
+    if goal is not None:
+        user.goal = goal
+    if is_active is not None:
+        user.is_active = is_active
+    await db.commit()
+    return {"ok": True, "user_id": user_id, "partner_preference": user.partner_preference, "goal": user.goal}
