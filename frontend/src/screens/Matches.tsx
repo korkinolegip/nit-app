@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { getMatches, matchAction, restoreSkip, Match } from '../api/matches'
+import Loader from '../components/Loader'
 
 interface MatchesProps {
   onBack: () => void
@@ -76,9 +77,7 @@ export default function Matches({ onBack, onOpenChat }: MatchesProps) {
 
       <div style={{ flex: 1, overflowY: 'auto', padding: '16px' }}>
         {loading ? (
-          <div style={{ display: 'flex', justifyContent: 'center', paddingTop: 60 }}>
-            <div style={{ width: 8, height: 8, borderRadius: '50%', background: 'var(--d3)' }} />
-          </div>
+          <Loader />
         ) : matches.length === 0 ? (
           <div style={{ textAlign: 'center', paddingTop: 80, color: 'var(--d3)' }}>
             <div style={{ fontSize: 40, marginBottom: 16 }}>🔍</div>

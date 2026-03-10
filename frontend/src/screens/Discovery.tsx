@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { getMatches, matchAction, restoreSkip, Match } from '../api/matches'
+import Loader from '../components/Loader'
 
 interface DiscoveryProps {
   onBack: () => void
@@ -126,8 +127,8 @@ export default function Discovery({ onBack, onOpenChat }: DiscoveryProps) {
         {/* Card + actions area — always min full screen height */}
         <div style={{ minHeight: 'calc(100dvh - 52px)', display: 'flex', flexDirection: 'column' }}>
           {loading ? (
-            <div style={{ flex: 1, display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
-              <div style={{ width: 8, height: 8, borderRadius: '50%', background: 'var(--d3)' }} />
+            <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <Loader />
             </div>
           ) : !hasPending ? (
             <EmptyState onBack={onBack} exhausted={candidates.length > 0 || reviewedMatches.length > 0} hasReviewed={reviewedMatches.length > 0} />

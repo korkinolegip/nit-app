@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { apiRequest } from '../api/client'
 import { getChatHistory } from '../api/chat'
+import Loader from './Loader'
 
 interface SettingsSheetProps {
   onClose: () => void
@@ -68,9 +69,7 @@ export default function SettingsSheet({ onClose }: SettingsSheetProps) {
         </div>
         <div style={{ flex: 1, overflowY: 'auto', padding: '16px 14px', display: 'flex', flexDirection: 'column', gap: 10 }}>
           {historyLoading ? (
-            <div style={{ display: 'flex', justifyContent: 'center', paddingTop: 40 }}>
-              <div style={{ width: 8, height: 8, borderRadius: '50%', background: 'var(--d3)' }} />
-            </div>
+            <Loader />
           ) : history.length === 0 ? (
             <div style={{ textAlign: 'center', paddingTop: 60, color: 'var(--d3)', fontSize: 14 }}>
               История пуста

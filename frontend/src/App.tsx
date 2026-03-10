@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import Loader from './components/Loader'
 import Welcome from './screens/Welcome'
 import Chat from './screens/Chat'
 import MatchChat from './screens/MatchChat'
@@ -49,14 +50,7 @@ export default function App() {
   const backToChat = () => setScreen('chat')
 
   if (screen === null) {
-    return (
-      <div style={{
-        height: '100dvh', display: 'flex', alignItems: 'center', justifyContent: 'center',
-        background: 'var(--bg)',
-      }}>
-        <div style={{ width: 8, height: 8, borderRadius: '50%', background: 'var(--d3)' }} />
-      </div>
-    )
+    return <Loader fullScreen />
   }
 
   if (screen === 'welcome') {
