@@ -43,7 +43,36 @@ export async function matchAction(matchId: number, action: 'like' | 'skip') {
   })
 }
 
-export async function getMatchMessages(matchId: number) {
+export interface MatchPartnerProfile {
+  name: string
+  age: number | null
+  city: string | null
+  occupation: string | null
+  goal: string | null
+  personality_type: string | null
+  profile_text: string | null
+  attachment_hint: string | null
+  strengths: string[]
+  ideal_partner_traits: string[]
+  photos: { url: string; is_primary: boolean }[]
+}
+
+export interface MatchChatData {
+  messages: {
+    id: number
+    sender_id: number
+    content_type: string
+    text: string | null
+    created_at: string
+  }[]
+  chat_status: string
+  deadline: string | null
+  compatibility_score: number
+  explanation: string | null
+  partner: MatchPartnerProfile
+}
+
+export async function getMatchMessages(matchId: number): Promise<MatchChatData> {
   return apiRequest(`/api/match-chat/${matchId}/messages`)
 }
 

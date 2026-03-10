@@ -64,6 +64,15 @@ async def get_messages(
         url = await get_photo_signed_url(p.storage_key)
         partner_photos.append({"url": url, "is_primary": p.is_primary})
 
+    def _as_list(val) -> list:
+        if not val:
+            return []
+        if isinstance(val, list):
+            return val
+        if isinstance(val, dict):
+            return list(val.values())
+        return []
+
     return {
         "messages": [
             {
@@ -81,8 +90,19 @@ async def get_messages(
         ],
         "chat_status": match.chat_status,
         "deadline": match.chat_deadline.isoformat() if match.chat_deadline else None,
+        "compatibility_score": match.compatibility_score or 0,
+        "explanation": match.explanation_text,
         "partner": {
             "name": partner.name if partner else "",
+            "age": partner.age if partner else None,
+            "city": partner.city if partner else None,
+            "occupation": partner.occupation if partner else None,
+            "goal": partner.goal if partner else None,
+            "personality_type": partner.personality_type if partner else None,
+            "profile_text": partner.profile_text if partner else None,
+            "attachment_hint": partner.attachment_hint if partner else None,
+            "strengths": _as_list(partner.strengths if partner else None),
+            "ideal_partner_traits": _as_list(partner.ideal_partner_traits if partner else None),
             "photos": partner_photos,
         },
     }

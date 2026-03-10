@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import InputBar from '../components/InputBar'
-import { getMatchMessages, sendMatchMessage } from '../api/matches'
+import { getMatchMessages, sendMatchMessage, MatchPartnerProfile } from '../api/matches'
 
 interface MatchChatProps {
   matchId: number
@@ -17,16 +17,21 @@ interface ChatMessage {
 
 export default function MatchChat({ matchId, onBack }: MatchChatProps) {
   const [messages, setMessages] = useState<ChatMessage[]>([])
-  const [partnerName, setPartnerName] = useState('')
+  const [partner, setPartner] = useState<MatchPartnerProfile | null>(null)
+  const [compatScore, setCompatScore] = useState(0)
+  const [explanation, setExplanation] = useState<string | null>(null)
   const [chatStatus, setChatStatus] = useState('')
   const [deadline, setDeadline] = useState('')
+  const [showProfile, setShowProfile] = useState(false)
   const scrollRef = useRef<HTMLDivElement>(null)
 
   const loadMessages = useCallback(async () => {
     try {
       const data = await getMatchMessages(matchId)
       setMessages(data.messages)
-      setPartnerName(data.partner?.name || '')
+      setPartner(data.partner)
+      setCompatScore(data.compatibility_score)
+      setExplanation(data.explanation)
       setChatStatus(data.chat_status)
       setDeadline(data.deadline || '')
     } catch {
@@ -36,7 +41,7 @@ export default function MatchChat({ matchId, onBack }: MatchChatProps) {
 
   useEffect(() => {
     loadMessages()
-    const interval = setInterval(loadMessages, 5000) // Poll every 5s
+    const interval = setInterval(loadMessages, 5000)
     return () => clearInterval(interval)
   }, [loadMessages])
 
@@ -53,41 +58,81 @@ export default function MatchChat({ matchId, onBack }: MatchChatProps) {
     }
   }
 
+  // Get primary photo for avatar
+  const avatarPhoto = partner?.photos.find(p => p.is_primary) || partner?.photos[0]
+
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100dvh' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100dvh', background: 'var(--bg)' }}>
       {/* Topbar */}
       <div style={{
-        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-        padding: '12px 16px 10px', borderBottom: '1px solid var(--l)',
+        display: 'flex', alignItems: 'center', gap: 10,
+        padding: '10px 16px',
+        paddingTop: 'max(10px, env(safe-area-inset-top, 0px))',
+        borderBottom: '1px solid var(--l)',
         background: 'var(--bg)', flexShrink: 0,
       }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-          <div onClick={onBack} style={{
-            width: '32px', height: '32px', borderRadius: '8px',
-            border: '1px solid var(--l)', display: 'flex',
-            alignItems: 'center', justifyContent: 'center', cursor: 'pointer',
-            marginRight: '6px',
-          }}>
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
-              <path d="M19 12H5M12 5l-7 7 7 7" stroke="rgba(255,255,255,.45)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-            </svg>
-          </div>
-          <div style={{ fontSize: '14px', fontWeight: 600, letterSpacing: '.05em', color: 'var(--w)' }}>
-            {partnerName || 'Чат'}
-          </div>
+        {/* Back */}
+        <div onClick={onBack} style={{
+          width: 32, height: 32, borderRadius: 8,
+          border: '1px solid var(--l)', display: 'flex',
+          alignItems: 'center', justifyContent: 'center', cursor: 'pointer', flexShrink: 0,
+        }}>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
+            <path d="M19 12H5M12 5l-7 7 7 7" stroke="rgba(255,255,255,.45)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+          </svg>
+        </div>
+
+        {/* Avatar + name — tappable → profile */}
+        <div
+          onClick={() => partner && setShowProfile(true)}
+          style={{ display: 'flex', alignItems: 'center', gap: 10, flex: 1, cursor: 'pointer', minWidth: 0 }}
+        >
+          {/* Avatar */}
           <div style={{
-            fontSize: '11px', color: 'var(--d3)', background: 'var(--d5)',
-            border: '1px solid var(--l)', borderRadius: '6px', padding: '3px 8px',
+            width: 36, height: 36, borderRadius: 10, flexShrink: 0,
+            background: 'var(--bg3)', border: '1px solid var(--l)',
+            overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center',
+            fontSize: 16, color: 'var(--d2)',
           }}>
-            {chatStatus === 'open' ? 'совпадение' : chatStatus}
+            {avatarPhoto?.url
+              ? <img src={avatarPhoto.url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+              : (partner?.name?.[0] ?? '?')
+            }
+          </div>
+
+          {/* Name + status */}
+          <div style={{ minWidth: 0 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--w)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                {partner?.name || 'Чат'}
+              </div>
+              {compatScore > 0 && (
+                <div style={{
+                  fontSize: 11, color: 'var(--d3)', background: 'var(--bg3)',
+                  border: '1px solid var(--l)', borderRadius: 6, padding: '2px 7px', flexShrink: 0,
+                }}>
+                  {Math.round(compatScore)}%
+                </div>
+              )}
+            </div>
+            <div style={{ fontSize: 11, color: 'var(--d4)', marginTop: 1 }}>
+              {chatStatus === 'open' ? 'нажми чтобы открыть профиль' : chatStatus === 'closed' ? 'время истекло' : chatStatus}
+            </div>
           </div>
         </div>
+
+        {/* Profile arrow hint */}
+        {partner && (
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" style={{ color: 'var(--d4)', flexShrink: 0 }}>
+            <path d="M9 18l6-6-6-6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+          </svg>
+        )}
       </div>
 
       {/* Messages */}
       <div ref={scrollRef} style={{
         flex: 1, overflowY: 'auto', padding: '20px 14px 8px',
-        display: 'flex', flexDirection: 'column', gap: '10px',
+        display: 'flex', flexDirection: 'column', gap: 10,
         background: 'var(--bg)',
       }}>
         {messages.map(msg => (
@@ -96,20 +141,18 @@ export default function MatchChat({ matchId, onBack }: MatchChatProps) {
             justifyContent: msg.sender_id === 0 ? 'flex-start' : 'flex-end',
             animation: 'mp 0.28s ease both',
           }}>
-            <div style={{
-              maxWidth: '86%', display: 'flex', flexDirection: 'column',
-            }}>
+            <div style={{ maxWidth: '86%', display: 'flex', flexDirection: 'column' }}>
               <div style={{
-                fontSize: '15px', lineHeight: 1.65, fontWeight: 300, color: 'var(--d1)',
-                padding: '12px 16px', borderRadius: '16px',
+                fontSize: 15, lineHeight: 1.65, fontWeight: 300, color: 'var(--d1)',
+                padding: '12px 16px', borderRadius: 16,
                 background: msg.sender_id === 0 ? 'var(--bg3)' : 'var(--bg4)',
                 border: `1px solid ${msg.sender_id === 0 ? 'var(--l)' : 'var(--l2)'}`,
-                borderBottomLeftRadius: msg.sender_id === 0 ? '4px' : '16px',
-                borderBottomRightRadius: msg.sender_id === 0 ? '16px' : '4px',
+                borderBottomLeftRadius: msg.sender_id === 0 ? 4 : 16,
+                borderBottomRightRadius: msg.sender_id === 0 ? 16 : 4,
               }}>
                 {msg.text || '[голосовое сообщение]'}
               </div>
-              <div style={{ fontSize: '10px', color: 'var(--d3)', marginTop: '4px' }}>
+              <div style={{ fontSize: 10, color: 'var(--d3)', marginTop: 4 }}>
                 {new Date(msg.created_at).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}
               </div>
             </div>
@@ -119,14 +162,11 @@ export default function MatchChat({ matchId, onBack }: MatchChatProps) {
 
       {/* Input */}
       {chatStatus === 'open' ? (
-        <InputBar
-          onSendText={handleSend}
-          onSendVoice={async () => {}}
-        />
+        <InputBar onSendText={handleSend} onSendVoice={async () => {}} />
       ) : (
         <div style={{
-          padding: '16px', textAlign: 'center', color: 'var(--d3)',
-          fontSize: '13px', borderTop: '1px solid var(--l)',
+          padding: 16, textAlign: 'center', color: 'var(--d3)',
+          fontSize: 13, borderTop: '1px solid var(--l)',
         }}>
           {chatStatus === 'closed' ? 'Время чата истекло' :
            chatStatus === 'frozen' ? 'Чат заморожен' :
@@ -135,13 +175,193 @@ export default function MatchChat({ matchId, onBack }: MatchChatProps) {
         </div>
       )}
 
+      {/* Profile modal */}
+      {showProfile && partner && (
+        <PartnerProfileModal
+          partner={partner}
+          compatScore={compatScore}
+          explanation={explanation}
+          onClose={() => setShowProfile(false)}
+        />
+      )}
+
       <style>{`
-        @keyframes mp {
-          from { opacity: 0; transform: translateY(7px); }
-          to { opacity: 1; transform: none; }
-        }
+        @keyframes mp { from { opacity: 0; transform: translateY(7px); } to { opacity: 1; transform: none; } }
         @keyframes rp { 0%, 100% { opacity: 1; } 50% { opacity: .2; } }
+        @keyframes slideUpFull { from { transform: translateY(100%) } to { transform: none } }
       `}</style>
     </div>
   )
+}
+
+function PartnerProfileModal({ partner, compatScore, explanation, onClose }: {
+  partner: MatchPartnerProfile
+  compatScore: number
+  explanation: string | null
+  onClose: () => void
+}) {
+  const photos = partner.photos.filter(p => p.url)
+  const primaryIdx = photos.findIndex(p => p.is_primary)
+  const orderedPhotos = primaryIdx > 0
+    ? [photos[primaryIdx], ...photos.filter((_, i) => i !== primaryIdx)]
+    : photos
+  const [pi, setPi] = useState(0)
+  const touchStartX = useRef(0)
+
+  return (
+    <div style={{
+      position: 'fixed', inset: 0, zIndex: 300,
+      background: 'var(--bg)', display: 'flex', flexDirection: 'column',
+      animation: 'slideUpFull 0.3s cubic-bezier(0.34,1.1,0.64,1)',
+    }}>
+      {/* Photo carousel */}
+      <div
+        style={{ height: '55vh', position: 'relative', background: 'var(--bg2)', flexShrink: 0 }}
+        onTouchStart={e => { touchStartX.current = e.touches[0].clientX }}
+        onTouchEnd={e => {
+          const dx = e.changedTouches[0].clientX - touchStartX.current
+          if (dx < -40 && pi < orderedPhotos.length - 1) setPi(i => i + 1)
+          if (dx > 40 && pi > 0) setPi(i => i - 1)
+        }}
+      >
+        {orderedPhotos[pi]?.url ? (
+          <img src={orderedPhotos[pi].url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+        ) : (
+          <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 80, color: 'var(--d4)' }}>
+            {partner.name[0]}
+          </div>
+        )}
+        {/* Close */}
+        <button onClick={onClose} style={{
+          position: 'absolute', top: 'max(16px, env(safe-area-inset-top, 16px))', left: 16,
+          width: 36, height: 36, borderRadius: '50%',
+          background: 'rgba(0,0,0,.5)', border: 'none', cursor: 'pointer',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          backdropFilter: 'blur(4px)',
+        }}>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
+            <path d="M15 18l-6-6 6-6" stroke="rgba(255,255,255,.9)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+          </svg>
+        </button>
+        {/* Compat badge */}
+        {compatScore > 0 && (
+          <div style={{
+            position: 'absolute', top: 'max(16px, env(safe-area-inset-top, 16px))', right: 16,
+            background: 'rgba(0,0,0,.65)', borderRadius: 20, padding: '5px 12px',
+            fontSize: 14, fontWeight: 700, color: '#fff', backdropFilter: 'blur(4px)',
+          }}>
+            {Math.round(compatScore)}%
+          </div>
+        )}
+        {/* Photo dots */}
+        {orderedPhotos.length > 1 && (
+          <div style={{ position: 'absolute', bottom: 14, left: 0, right: 0, display: 'flex', gap: 4, justifyContent: 'center' }}>
+            {orderedPhotos.map((_, i) => (
+              <div key={i} onClick={() => setPi(i)} style={{
+                height: 3, borderRadius: 2, cursor: 'pointer',
+                width: i === pi ? 20 : 8,
+                background: i === pi ? 'rgba(255,255,255,.9)' : 'rgba(255,255,255,.35)',
+                transition: 'width 0.2s',
+              }} />
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Profile info */}
+      <div style={{ flex: 1, overflowY: 'auto', padding: '20px 20px 40px' }}>
+        <div style={{ fontSize: 26, fontWeight: 700, color: 'var(--w)', letterSpacing: '-0.02em' }}>
+          {partner.name}{partner.age ? `, ${partner.age}` : ''}
+        </div>
+
+        {/* Chips */}
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 10 }}>
+          {partner.city && <Chip icon="📍">{partner.city}</Chip>}
+          {partner.occupation && <Chip icon="💼">{partner.occupation}</Chip>}
+          {partner.goal && <Chip icon="🎯">{partner.goal}</Chip>}
+          {partner.personality_type && <Chip icon="🧠">{partner.personality_type}</Chip>}
+          {partner.attachment_hint && <Chip icon="🔗">{attachmentLabel(partner.attachment_hint)}</Chip>}
+        </div>
+
+        {/* AI explanation */}
+        {explanation && (
+          <div style={{
+            marginTop: 16, padding: '14px 16px',
+            background: 'var(--bg3)', border: '1px solid var(--l)', borderRadius: 14,
+            fontSize: 13, color: 'var(--d2)', lineHeight: 1.65, fontStyle: 'italic',
+          }}>
+            "{explanation}"
+          </div>
+        )}
+
+        {/* About */}
+        {partner.profile_text && (
+          <Section label="О себе">
+            <div style={{ fontSize: 14, color: 'var(--d2)', lineHeight: 1.7 }}>{partner.profile_text}</div>
+          </Section>
+        )}
+
+        {partner.strengths.length > 0 && (
+          <Section label="Сильные стороны">
+            <TagList items={partner.strengths} />
+          </Section>
+        )}
+
+        {partner.ideal_partner_traits.length > 0 && (
+          <Section label="Ищет в партнёре">
+            <TagList items={partner.ideal_partner_traits} />
+          </Section>
+        )}
+      </div>
+    </div>
+  )
+}
+
+function Chip({ icon, children }: { icon: string; children: React.ReactNode }) {
+  return (
+    <div style={{
+      display: 'inline-flex', alignItems: 'center', gap: 5,
+      background: 'var(--bg3)', border: '1px solid var(--l)',
+      borderRadius: 20, padding: '5px 10px', fontSize: 13, color: 'var(--d2)',
+    }}>
+      <span style={{ fontSize: 12 }}>{icon}</span>
+      {children}
+    </div>
+  )
+}
+
+function Section({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div style={{ marginTop: 18 }}>
+      <div style={{ fontSize: 11, fontWeight: 600, letterSpacing: '.07em', color: 'var(--d3)', textTransform: 'uppercase' as const, marginBottom: 8 }}>
+        {label}
+      </div>
+      {children}
+    </div>
+  )
+}
+
+function TagList({ items }: { items: string[] }) {
+  return (
+    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+      {items.map((item, i) => (
+        <div key={i} style={{
+          background: 'var(--bg3)', border: '1px solid var(--l)',
+          borderRadius: 20, padding: '5px 12px', fontSize: 13, color: 'var(--d2)',
+        }}>
+          {item}
+        </div>
+      ))}
+    </div>
+  )
+}
+
+function attachmentLabel(hint: string): string {
+  const map: Record<string, string> = {
+    secure: 'Надёжный тип',
+    anxious: 'Тревожный тип',
+    avoidant: 'Избегающий тип',
+    disorganized: 'Дезорганизованный',
+  }
+  return map[hint] || hint
 }
