@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import uuid
 
@@ -13,6 +14,7 @@ from core.config import settings
 from core.redis import get_redis
 from core.storage import delete_file, get_photo_signed_url, upload_file
 from db.connection import get_db
+from modules.matching.runner import run_matching_for_user
 from modules.users.models import Photo, User
 from modules.users.repository import get_user_photos
 
@@ -42,7 +44,12 @@ async def get_profile(
     photos = await get_user_photos(db, user.id)
     photo_list = []
     for p in photos:
-        url = await get_photo_signed_url(p.storage_key) if p.moderation_status == "approved" else ""
+        url = ""
+        if p.moderation_status == "approved":
+            try:
+                url = await get_photo_signed_url(p.storage_key)
+            except Exception:
+                pass
         photo_list.append({
             "id": p.id,
             "url": url,
@@ -120,7 +127,6 @@ async def upload_photo(
         await upload_file(storage_key, content, file.content_type or "image/jpeg")
     except Exception as e:
         logger.warning(f"S3 upload failed (continuing without storage): {e}")
-        # Save record anyway so the flow works even without real S3
 
     is_primary = len(photos) == 0
     photo = Photo(
@@ -128,14 +134,32 @@ async def upload_photo(
         storage_key=storage_key,
         is_primary=is_primary,
         sort_order=len(photos),
+        moderation_status="approved",
     )
     db.add(photo)
-    if is_primary and user.onboarding_step == "photos":
-        user.onboarding_step = "complete"
+
+    if is_primary:
+        user.is_active = True
+        if user.onboarding_step == "photos":
+            user.onboarding_step = "complete"
+
     await db.commit()
     await db.refresh(photo)
 
+    if is_primary:
+        asyncio.create_task(_run_matching_background(user.id))
+
     return {"photo_id": photo.id, "moderation_status": photo.moderation_status}
+
+
+async def _run_matching_background(user_id: int):
+    from db.connection import async_session
+    try:
+        async with async_session() as db:
+            count = await run_matching_for_user(user_id, db)
+            logger.info(f"Background matching: {count} matches created for user {user_id}")
+    except Exception as e:
+        logger.error(f"Background matching failed for user {user_id}: {e}")
 
 
 @router.delete("/photos/{photo_id}")
@@ -148,7 +172,10 @@ async def delete_photo(
     if not photo or photo.user_id != user.id:
         raise HTTPException(404, "Photo not found")
 
-    await delete_file(photo.storage_key)
+    try:
+        await delete_file(photo.storage_key)
+    except Exception:
+        pass
     await db.delete(photo)
     await db.commit()
     return {"status": "deleted"}
@@ -181,7 +208,10 @@ async def delete_profile(
 ):
     photos = await get_user_photos(db, user.id)
     for photo in photos:
-        await delete_file(photo.storage_key)
+        try:
+            await delete_file(photo.storage_key)
+        except Exception:
+            pass
 
     await db.delete(user)
     await db.commit()

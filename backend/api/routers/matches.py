@@ -63,7 +63,10 @@ async def get_matches(
         photos = list(photos_result.scalars().all())
         photo_urls = []
         for p in photos:
-            url = await get_photo_signed_url(p.storage_key)
+            try:
+                url = await get_photo_signed_url(p.storage_key)
+            except Exception:
+                url = ""
             photo_urls.append({"url": url, "is_primary": p.is_primary})
 
         user_action = m.user1_action if m.user1_id == user.id else m.user2_action

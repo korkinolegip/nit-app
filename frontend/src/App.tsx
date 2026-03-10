@@ -4,6 +4,7 @@ import Chat from './screens/Chat'
 import MatchChat from './screens/MatchChat'
 import Discovery from './screens/Discovery'
 import Profile from './screens/Profile'
+import Matches from './screens/Matches'
 import { initAuth } from './api/client'
 import { getChatStatus } from './api/chat'
 
@@ -75,13 +76,7 @@ export default function App() {
   }
 
   if (screen === 'matches') {
-    return <Chat
-      onOpenMatch={openMatchChat}
-      onNavigateTo={setScreen}
-      isReturning={isReturning}
-      sessionComplete={sessionComplete}
-      hasPhotos={hasPhotos}
-    />
+    return <Matches onBack={backToChat} onOpenChat={openMatchChat} />
   }
 
   return <Chat

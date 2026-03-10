@@ -12,22 +12,22 @@ async def calculate_compatibility(
     if not user_a or not user_b:
         return 0.0
 
+    # Try vector similarity if both have embeddings
+    vector_sim = None
     vec_a = await get_embedding(db, user_a_id)
     vec_b = await get_embedding(db, user_b_id)
-    if not vec_a or not vec_b:
-        return 0.0
-
-    # Cosine similarity via pgvector
-    result = await db.execute(
-        text(
-            "SELECT 1 - (a.full_vector <=> b.full_vector) as sim "
-            "FROM user_embeddings a, user_embeddings b "
-            "WHERE a.user_id = :a_id AND b.user_id = :b_id"
-        ),
-        {"a_id": user_a_id, "b_id": user_b_id},
-    )
-    row = result.fetchone()
-    vector_sim = row[0] if row else 0.0
+    if vec_a and vec_b:
+        result = await db.execute(
+            text(
+                "SELECT 1 - (a.full_vector <=> b.full_vector) as sim "
+                "FROM user_embeddings a, user_embeddings b "
+                "WHERE a.user_id = :a_id AND b.user_id = :b_id"
+            ),
+            {"a_id": user_a_id, "b_id": user_b_id},
+        )
+        row = result.fetchone()
+        if row and row[0] is not None:
+            vector_sim = max(0.0, float(row[0]))
 
     # Goal compatibility
     goal_score = 1.0 if user_a.goal == user_b.goal else 0.3
@@ -35,7 +35,14 @@ async def calculate_compatibility(
         goal_score = 0.8
 
     # Location score
-    location_score = 1.0 if user_a.city and user_a.city == user_b.city else 0.3
+    location_score = 1.0 if (
+        user_a.city and user_b.city and user_a.city.lower() == user_b.city.lower()
+    ) else 0.3
 
-    score = (vector_sim * 0.55 + goal_score * 0.30 + location_score * 0.15) * 100
+    if vector_sim is not None:
+        score = (vector_sim * 0.55 + goal_score * 0.30 + location_score * 0.15) * 100
+    else:
+        # Fallback: structured data only
+        score = (goal_score * 0.70 + location_score * 0.30) * 100
+
     return round(min(score, 99.0), 1)

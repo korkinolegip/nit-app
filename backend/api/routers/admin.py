@@ -1,4 +1,6 @@
-from fastapi import APIRouter, Depends, HTTPException
+import uuid
+
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -7,9 +9,23 @@ from api.middleware.auth import get_current_user
 from core.config import settings
 from core.storage import delete_file, get_photo_signed_url
 from db.connection import get_db
-from modules.users.models import ModerationLog, Photo, Report, User
+from modules.matching.runner import run_matching_for_user
+from modules.users.models import InterviewSession, ModerationLog, Photo, Report, User
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
+
+TEST_USERS = [
+    {"name": "Анна", "age": 25, "city": "Москва", "gender": "female", "goal": "romantic", "partner_preference": "male", "occupation": "Дизайнер"},
+    {"name": "Мария", "age": 27, "city": "Москва", "gender": "female", "goal": "romantic", "partner_preference": "male", "occupation": "Маркетолог"},
+    {"name": "Екатерина", "age": 24, "city": "Москва", "gender": "female", "goal": "friendship", "partner_preference": "any", "occupation": "Психолог"},
+    {"name": "Алина", "age": 29, "city": "Санкт-Петербург", "gender": "female", "goal": "romantic", "partner_preference": "male", "occupation": "Архитектор"},
+    {"name": "Дарья", "age": 26, "city": "Москва", "gender": "female", "goal": "open", "partner_preference": "any", "occupation": "Фотограф"},
+    {"name": "Дмитрий", "age": 28, "city": "Москва", "gender": "male", "goal": "romantic", "partner_preference": "female", "occupation": "Разработчик"},
+    {"name": "Алексей", "age": 30, "city": "Москва", "gender": "male", "goal": "romantic", "partner_preference": "female", "occupation": "Предприниматель"},
+    {"name": "Иван", "age": 27, "city": "Москва", "gender": "male", "goal": "friendship", "partner_preference": "any", "occupation": "Журналист"},
+    {"name": "Сергей", "age": 32, "city": "Санкт-Петербург", "gender": "male", "goal": "romantic", "partner_preference": "female", "occupation": "Врач"},
+    {"name": "Максим", "age": 26, "city": "Москва", "gender": "male", "goal": "open", "partner_preference": "any", "occupation": "Музыкант"},
+]
 
 
 def require_owner(user: User = Depends(get_current_user)) -> User:
@@ -139,3 +155,75 @@ async def moderate_photo(
     db.add(log)
     await db.commit()
     return {"status": "ok"}
+
+
+@router.post("/seed-test-users")
+async def seed_test_users(
+    secret: str = Query(...),
+    db: AsyncSession = Depends(get_db),
+):
+    """Create test users for matching demo. Requires WEBHOOK_SECRET."""
+    if secret != settings.WEBHOOK_SECRET:
+        raise HTTPException(403, "Invalid secret")
+
+    created = []
+    for i, u in enumerate(TEST_USERS):
+        fake_tg_id = 9_000_000_000 + i + 1
+        existing = await db.execute(select(User).where(User.telegram_id == fake_tg_id))
+        if existing.scalar_one_or_none():
+            continue
+
+        user = User(
+            telegram_id=fake_tg_id,
+            name=u["name"],
+            age=u["age"],
+            city=u["city"],
+            gender=u["gender"],
+            goal=u["goal"],
+            partner_preference=u["partner_preference"],
+            occupation=u["occupation"],
+            onboarding_step="complete",
+            is_active=True,
+            is_paused=False,
+        )
+        db.add(user)
+        await db.flush()
+
+        # Fake approved photo
+        photo = Photo(
+            user_id=user.id,
+            storage_key=f"test/placeholder_{u['gender']}.jpg",
+            is_primary=True,
+            sort_order=0,
+            moderation_status="approved",
+        )
+        db.add(photo)
+
+        # Fake completed interview session
+        session = InterviewSession(
+            user_id=user.id,
+            messages=[],
+            collected_data={"name": u["name"], "city": u["city"], "goal": u["goal"]},
+            missing_fields=[],
+            turn_count=3,
+            is_complete=True,
+        )
+        db.add(session)
+        created.append(u["name"])
+
+    await db.commit()
+    return {"created": created, "total": len(created)}
+
+
+@router.post("/run-matching/{user_id}")
+async def trigger_matching(
+    user_id: int,
+    secret: str = Query(...),
+    db: AsyncSession = Depends(get_db),
+):
+    """Manually trigger matching for a user."""
+    if secret != settings.WEBHOOK_SECRET:
+        raise HTTPException(403, "Invalid secret")
+
+    count = await run_matching_for_user(user_id, db)
+    return {"matches_created": count}
