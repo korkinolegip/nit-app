@@ -4,7 +4,7 @@ import MessageRow from '../components/MessageRow'
 import QuickReplies from '../components/QuickReplies'
 import InputBar from '../components/InputBar'
 import MenuSheet from '../components/MenuSheet'
-import { transcribeVoice } from '../api/chat'
+import { transcribeVoice, getChatHistory } from '../api/chat'
 import { uploadPhoto } from '../api/profile'
 
 interface ChatProps {
@@ -20,44 +20,42 @@ export default function Chat({ onOpenMatch, onNavigateTo, isReturning = false, s
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [isMenuOpen, setIsMenuOpen] = useState(false)
 
-  // Initial greeting
+  // Initial greeting / history restore
   useEffect(() => {
     if (isReturning) {
-      if (sessionComplete) {
-        if (hasPhotos) {
-          // Profile complete + photos uploaded
-          const t = setTimeout(() => {
-            addMessage({
-              sender: 'ai',
-              text: 'С возвращением! Профиль готов, алгоритм ищет совместимых людей.',
-              type: 'text',
-            })
-          }, 300)
-          return () => clearTimeout(t)
-        } else {
-          // Profile complete but no photos yet
-          const t1 = setTimeout(() => {
-            addMessage({
-              sender: 'ai',
-              text: 'С возвращением! Профиль создан. Добавь фото — с ними алгоритм работает лучше.',
-              type: 'text',
-            })
-          }, 300)
-          const t2 = setTimeout(() => {
-            addMessage({ sender: 'ai', text: 'Загрузи фото чтобы начать находить людей:', type: 'photo_prompt' })
-          }, 900)
-          return () => { clearTimeout(t1); clearTimeout(t2) }
-        }
-      } else {
-        const t = setTimeout(() => {
-          addMessage({
-            sender: 'ai',
-            text: 'Продолжим? Расскажи о себе — что ещё хочешь добавить.',
-            type: 'text',
-          })
-        }, 300)
-        return () => clearTimeout(t)
-      }
+      // Load full chat history from server
+      getChatHistory()
+        .then(({ messages: history }) => {
+          if (history.length > 0) {
+            history.forEach(msg => addMessage({ sender: msg.sender, text: msg.text, type: 'text' }))
+            // Show context-aware continuation message
+            if (!hasPhotos && sessionComplete) {
+              setTimeout(() => {
+                addMessage({ sender: 'ai', text: 'Загрузи фото чтобы начать находить людей:', type: 'photo_prompt' })
+              }, 300)
+            }
+          } else {
+            // Fallback greeting if no history
+            if (sessionComplete) {
+              addMessage({
+                sender: 'ai',
+                text: hasPhotos
+                  ? 'С возвращением! Профиль готов, алгоритм ищет совместимых людей.'
+                  : 'С возвращением! Профиль создан. Добавь фото — с ними алгоритм работает лучше.',
+                type: 'text',
+              })
+              if (!hasPhotos) {
+                setTimeout(() => addMessage({ sender: 'ai', text: 'Загрузи фото чтобы начать находить людей:', type: 'photo_prompt' }), 600)
+              }
+            } else {
+              addMessage({ sender: 'ai', text: 'Продолжим? Расскажи о себе — что ещё хочешь добавить.', type: 'text' })
+            }
+          }
+        })
+        .catch(() => {
+          addMessage({ sender: 'ai', text: 'С возвращением! Продолжаем.', type: 'text' })
+        })
+      return
     }
 
     // New user greeting

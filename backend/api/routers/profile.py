@@ -73,6 +73,7 @@ async def get_profile(
             "city": user.city,
             "gender": user.gender,
             "goal": user.goal,
+            "occupation": user.occupation if hasattr(user, "occupation") else None,
             "personality_type": user.personality_type,
             "profile_text": user.profile_text,
             "onboarding_step": user.onboarding_step,

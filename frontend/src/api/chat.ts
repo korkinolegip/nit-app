@@ -29,6 +29,10 @@ export async function getChatStatus(): Promise<ChatStatus> {
   return apiRequest('/api/chat/status')
 }
 
+export async function getChatHistory(): Promise<{ messages: { sender: 'ai' | 'me'; text: string; type: string }[] }> {
+  return apiRequest('/api/chat/history')
+}
+
 export async function transcribeVoice(file: Blob): Promise<{ text: string; duration_seconds: number }> {
   const ext = file.type.includes('mp4') ? 'audio.mp4' : file.type.includes('ogg') ? 'audio.ogg' : 'audio.webm'
   const formData = new FormData()

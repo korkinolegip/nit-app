@@ -49,6 +49,31 @@ class ChatStatusResponse(BaseModel):
     has_photos: bool
 
 
+@router.get("/history")
+async def get_chat_history(
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Return last N messages from interview session for display on app reopen."""
+    session = await get_interview_session(db, user.id)
+    if not session or not session.messages:
+        return {"messages": []}
+
+    # Convert stored messages to frontend format
+    history = []
+    for msg in session.messages[-40:]:  # last 40 messages max
+        role = msg.get("role")
+        content = msg.get("content", "")
+        if not content:
+            continue
+        history.append({
+            "sender": "ai" if role == "assistant" else "me",
+            "text": content,
+            "type": "text",
+        })
+    return {"messages": history}
+
+
 @router.get("/status", response_model=ChatStatusResponse)
 async def get_chat_status(
     user: User = Depends(get_current_user),
