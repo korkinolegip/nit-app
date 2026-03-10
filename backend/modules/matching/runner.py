@@ -82,9 +82,11 @@ async def run_matching_for_user(
         if existing.scalar_one_or_none():
             continue
 
+        # Enforce DB constraint: user1_id < user2_id
+        u1, u2 = (user_id, partner_id) if user_id < partner_id else (partner_id, user_id)
         match = Match(
-            user1_id=user_id,
-            user2_id=partner_id,
+            user1_id=u1,
+            user2_id=u2,
             compatibility_score=score,
             status="pending",
         )
