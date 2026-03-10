@@ -248,3 +248,48 @@ async def trigger_matching(
 
     count = await run_matching_for_user(user_id, db)
     return {"matches_created": count}
+
+
+@router.post("/run-matching-all")
+async def trigger_matching_all(
+    secret: str = Query(...),
+    db: AsyncSession = Depends(get_db),
+):
+    """Run matching for all active users. Fixes cases where new users weren't matched."""
+    if secret != settings.WEBHOOK_SECRET:
+        raise HTTPException(403, "Invalid secret")
+
+    result = await db.execute(
+        select(User).where(User.name.isnot(None), User.is_banned == False)
+    )
+    users = list(result.scalars().all())
+    total = 0
+    details = []
+    for u in users:
+        count = await run_matching_for_user(u.id, db, require_active=False)
+        if count:
+            total += count
+            details.append({"user_id": u.id, "name": u.name, "matches_created": count})
+    return {"total_matches_created": total, "details": details}
+
+
+@router.get("/users")
+async def list_users(
+    secret: str = Query(...),
+    db: AsyncSession = Depends(get_db),
+):
+    """List all users with their status for debugging."""
+    if secret != settings.WEBHOOK_SECRET:
+        raise HTTPException(403, "Invalid secret")
+
+    result = await db.execute(select(User).order_by(User.id))
+    users = list(result.scalars().all())
+    return {"users": [
+        {
+            "id": u.id, "name": u.name, "age": u.age, "city": u.city,
+            "gender": u.gender, "partner_preference": u.partner_preference,
+            "goal": u.goal, "is_active": u.is_active, "onboarding_step": u.onboarding_step,
+            "telegram_id": u.telegram_id,
+        }
+        for u in users
+    ]}
