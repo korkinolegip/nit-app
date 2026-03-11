@@ -151,40 +151,61 @@ async def get_feed(
             authors[a.id] = a
             avatars[a.id] = await _get_avatar_url(db, a.id)
 
-    # Record views + build response
+    # Build response dicts
     items = []
     for post in posts:
         author = authors.get(post.author_id) if post.author_id else None
         avatar = avatars.get(post.author_id, "") if post.author_id else ""
         items.append(await _build_post_dict(post, user.id, db, author, avatar))
 
-    # Record views (fire-and-forget style via bulk insert)
-    for post in posts:
+    # Record views — only for posts NOT yet seen by this user
+    post_ids = [p.id for p in posts]
+    if post_ids:
         try:
-            await db.execute(
-                text("""
-                    INSERT INTO post_views (post_id, user_id)
-                    VALUES (:pid, :uid)
-                    ON CONFLICT (post_id, user_id) DO NOTHING
-                """),
-                {"pid": post.id, "uid": user.id},
+            # Find which posts this user already viewed
+            seen_res = await db.execute(
+                select(PostView.post_id).where(
+                    PostView.post_id.in_(post_ids), PostView.user_id == user.id
+                )
             )
+            already_seen = {row[0] for row in seen_res.fetchall()}
+            new_ids = [pid for pid in post_ids if pid not in already_seen]
+
+            if new_ids:
+                # Batch insert new views
+                for pid in new_ids:
+                    await db.execute(
+                        text("INSERT INTO post_views (post_id, user_id) VALUES (:pid, :uid) ON CONFLICT DO NOTHING"),
+                        {"pid": pid, "uid": user.id},
+                    )
+                # Increment only for new views
+                await db.execute(
+                    text("UPDATE posts SET views_count = views_count + 1 WHERE id = ANY(:ids)"),
+                    {"ids": new_ids},
+                )
+                await db.commit()
         except Exception:
             pass
-    # Bulk increment view counts for newly viewed posts
-    try:
-        await db.execute(
-            text("""
-                UPDATE posts SET views_count = views_count + 1
-                WHERE id = ANY(:ids)
-            """),
-            {"ids": [p.id for p in posts]},
-        )
-    except Exception:
-        pass
-    await db.commit()
 
     return {"posts": items, "offset": offset, "limit": limit}
+
+
+@router.get("/api/feed/user/{target_user_id}/stats")
+async def get_user_feed_stats(
+    target_user_id: int,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Return post count and total likes for a user."""
+    from sqlalchemy import func as sqlfunc
+    res = await db.execute(
+        select(
+            sqlfunc.count(Post.id).label("posts_count"),
+            sqlfunc.coalesce(sqlfunc.sum(Post.likes_count), 0).label("total_likes"),
+        ).where(Post.author_id == target_user_id)
+    )
+    row = res.one()
+    return {"posts_count": row.posts_count, "total_likes": int(row.total_likes)}
 
 
 @router.get("/api/feed/user/{target_user_id}")

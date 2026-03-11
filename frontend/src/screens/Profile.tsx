@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { getProfile, updateProfile, deleteProfile, uploadPhotos, deletePhoto, setPrimaryPhoto } from '../api/profile'
+import { getUserFeed, getUserFeedStats, FeedPost, toggleLike, toggleSave, deletePost } from '../api/feed'
 
 interface ProfileProps {
   onBack: () => void
@@ -32,8 +33,17 @@ const GOAL_LABELS: Record<string, string> = {
   open: 'Открыт ко всему',
 }
 
+function timeAgo(iso: string): string {
+  const diff = (Date.now() - new Date(iso).getTime()) / 1000
+  if (diff < 60) return 'только что'
+  if (diff < 3600) return `${Math.floor(diff / 60)} мин`
+  if (diff < 86400) return `${Math.floor(diff / 3600)} ч`
+  if (diff < 604800) return `${Math.floor(diff / 86400)} дн`
+  return new Date(iso).toLocaleDateString('ru', { day: 'numeric', month: 'short' })
+}
+
 export default function Profile({ onBack }: ProfileProps) {
-  const [profile, setProfile] = useState<ProfileData>({})
+  const [profile, setProfile] = useState<ProfileData & { id?: number }>({})
   const [photos, setPhotos] = useState<PhotoData[]>([])
   const [photoIndex, setPhotoIndex] = useState(0)
   const [loading, setLoading] = useState(true)
@@ -47,15 +57,37 @@ export default function Profile({ onBack }: ProfileProps) {
   const [uploadError, setUploadError] = useState<string | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
+  // Tabs
+  const [activeTab, setActiveTab] = useState<'about' | 'posts'>('about')
+  const [stats, setStats] = useState<{ posts_count: number; total_likes: number } | null>(null)
+  const [posts, setPosts] = useState<FeedPost[]>([])
+  const [postsLoading, setPostsLoading] = useState(false)
+
   useEffect(() => {
     getProfile()
       .then((data: any) => {
-        setProfile(data.user || data)
+        const user = data.user || data
+        setProfile(user)
         setPhotos((data.photos || []).filter((p: PhotoData) => p.url))
+        // Fetch stats after we have user id
+        if (user.id) {
+          getUserFeedStats(user.id)
+            .then(s => setStats(s))
+            .catch(() => {})
+        }
       })
       .catch(() => {})
       .finally(() => setLoading(false))
   }, [])
+
+  useEffect(() => {
+    if (activeTab !== 'posts' || !profile.id || postsLoading || posts.length > 0) return
+    setPostsLoading(true)
+    getUserFeed(profile.id)
+      .then(p => setPosts(p))
+      .catch(() => {})
+      .finally(() => setPostsLoading(false))
+  }, [activeTab, profile.id])
 
   const startEdit = (field: string, value: string) => {
     setEditing(field)
@@ -358,6 +390,124 @@ export default function Profile({ onBack }: ProfileProps) {
               )}
             </div>
 
+            {/* Stats row */}
+            {stats && (
+              <div style={{
+                display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)',
+                gap: 8, marginBottom: 16,
+              }}>
+                {[
+                  { value: stats.posts_count, label: 'постов' },
+                  { value: stats.total_likes, label: 'лайков' },
+                ].map(({ value, label }) => (
+                  <div key={label} style={{
+                    background: 'var(--bg3)', border: '1px solid var(--l)',
+                    borderRadius: 14, padding: '12px 16px', textAlign: 'center',
+                  }}>
+                    <div style={{ fontSize: 20, fontWeight: 700, color: 'var(--d1)', fontFamily: 'Inter', letterSpacing: '-0.02em' }}>{value}</div>
+                    <div style={{ fontSize: 11, color: 'var(--d3)', fontFamily: 'Inter', marginTop: 2 }}>{label}</div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Tabs */}
+            <div style={{
+              display: 'flex', gap: 0, marginBottom: 20,
+              background: 'var(--bg3)', borderRadius: 12, padding: 4,
+              border: '1px solid var(--l)',
+            }}>
+              {(['about', 'posts'] as const).map(tab => (
+                <button
+                  key={tab}
+                  onClick={() => setActiveTab(tab)}
+                  style={{
+                    flex: 1, padding: '8px', border: 'none', cursor: 'pointer',
+                    borderRadius: 9, fontFamily: 'Inter', fontSize: 13, fontWeight: 500,
+                    background: activeTab === tab ? 'var(--bg2)' : 'none',
+                    color: activeTab === tab ? 'var(--d1)' : 'var(--d3)',
+                    transition: 'all 0.15s',
+                  }}
+                >
+                  {tab === 'about' ? 'О себе' : 'Посты'}
+                </button>
+              ))}
+            </div>
+
+            {/* Posts tab */}
+            {activeTab === 'posts' && (
+              <div>
+                {postsLoading ? (
+                  <div style={{ textAlign: 'center', padding: 32, color: 'var(--d3)', fontFamily: 'Inter', fontSize: 13 }}>Загружаю...</div>
+                ) : posts.length === 0 ? (
+                  <div style={{
+                    textAlign: 'center', padding: '40px 20px',
+                    color: 'var(--d3)', fontFamily: 'Inter', fontSize: 14,
+                  }}>
+                    Ещё ничего не опубликовано
+                  </div>
+                ) : (
+                  posts.map(post => (
+                    <div key={post.id} style={{
+                      background: 'var(--bg3)', border: '1px solid var(--l)',
+                      borderRadius: 14, padding: 14, marginBottom: 10,
+                    }}>
+                      {post.text && (
+                        <div style={{ fontSize: 14, color: 'var(--d1)', fontFamily: 'Inter', lineHeight: 1.55, marginBottom: 8, whiteSpace: 'pre-wrap' }}>
+                          {post.text}
+                        </div>
+                      )}
+                      {post.media_url && (
+                        <div style={{ borderRadius: 10, overflow: 'hidden', marginBottom: 8 }}>
+                          <img src={post.media_url} alt="" style={{ width: '100%', display: 'block', objectFit: 'cover', maxHeight: 240 }} />
+                        </div>
+                      )}
+                      {post.hashtags.length > 0 && (
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 8 }}>
+                          {post.hashtags.map(tag => (
+                            <span key={tag} style={{ fontSize: 12, color: 'rgba(130,170,255,.8)', fontFamily: 'Inter' }}>#{tag}</span>
+                          ))}
+                        </div>
+                      )}
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+                        <button
+                          onClick={async () => {
+                            try {
+                              const res = await toggleLike(post.id)
+                              setPosts(prev => prev.map(p => p.id === post.id ? { ...p, is_liked: res.liked, likes_count: res.likes_count } : p))
+                            } catch { /* ignore */ }
+                          }}
+                          style={{ background: 'none', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4, color: post.is_liked ? '#ff4466' : 'var(--d3)', fontSize: 12, fontFamily: 'Inter', padding: 0 }}
+                        >
+                          ❤ {post.likes_count > 0 ? post.likes_count : ''}
+                        </button>
+                        <span style={{ fontSize: 12, color: 'var(--d3)', fontFamily: 'Inter' }}>
+                          💬 {post.comments_count > 0 ? post.comments_count : ''}
+                        </span>
+                        <div style={{ flex: 1 }} />
+                        <span style={{ fontSize: 11, color: 'var(--d4)', fontFamily: 'Inter' }}>{timeAgo(post.created_at)}</span>
+                        {post.is_mine && (
+                          <button
+                            onClick={async () => {
+                              try {
+                                await deletePost(post.id)
+                                setPosts(prev => prev.filter(p => p.id !== post.id))
+                                setStats(prev => prev ? { ...prev, posts_count: prev.posts_count - 1 } : prev)
+                              } catch { /* ignore */ }
+                            }}
+                            style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--d4)', fontSize: 18, padding: 0 }}
+                          >×</button>
+                        )}
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+            )}
+
+            {/* О себе tab content */}
+            {activeTab === 'about' && <>
+
             {/* Personality type */}
             {profile.personality_type && (
               <div style={{
@@ -489,6 +639,7 @@ export default function Profile({ onBack }: ProfileProps) {
                 Не удалось удалить профиль. Попробуй ещё раз.
               </p>
             )}
+            </>}
           </>
         )}
       </div>

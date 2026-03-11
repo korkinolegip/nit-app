@@ -98,3 +98,7 @@ export async function getSavedPosts(): Promise<FeedPost[]> {
   const res = await apiRequest('/api/posts/saved')
   return (res as { posts: FeedPost[] }).posts
 }
+
+export async function getUserFeedStats(userId: number): Promise<{ posts_count: number; total_likes: number }> {
+  return apiRequest(`/api/feed/user/${userId}/stats`) as Promise<{ posts_count: number; total_likes: number }>
+}
