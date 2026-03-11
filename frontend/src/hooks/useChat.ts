@@ -45,48 +45,46 @@ export function useChat(opts?: { onNavigate?: (screen: NavScreen) => void }) {
     return id
   }, [scrollToBottom])
 
-  // Attempt navigation with retries; on full failure show a nav button in chat
+  const showNavFallback = useCallback((screen: NavScreen) => {
+    addMessage({
+      sender: 'ai',
+      text: 'Не удалось перейти автоматически. Нажми кнопку:',
+      type: 'greeting',
+      greetingData: { menu_buttons: [{ icon: '→', label: NAV_LABELS[screen], screen }] },
+    })
+  }, [addMessage])
+
+  // Attempt navigation with exponential backoff; on full failure show fallback button
   const navigateTo = useCallback((screen: NavScreen, reply: string) => {
     addMessage({ sender: 'ai', text: reply, type: 'text' })
 
     if (!opts?.onNavigate) {
-      // No navigator provided — show fallback button
-      addMessage({
-        sender: 'ai',
-        text: `Нажми чтобы перейти:`,
-        type: 'greeting',
-        greetingData: {
-          menu_buttons: [{ icon: '→', label: NAV_LABELS[screen], screen }],
-        },
-      })
+      // Navigator not provided — structural bug, log and show fallback immediately
+      console.error('[useChat] onNavigate not provided — cannot navigate to', screen)
+      showNavFallback(screen)
       return
     }
 
-    let attempts = 0
-    const tryNavigate = () => {
-      attempts++
+    const delays = [200, 500, 1000]
+    let idx = 0
+
+    const tryNavigate = async () => {
       try {
         opts.onNavigate!(screen)
+        return // success
       } catch (err) {
-        console.warn(`[useChat] Navigation to ${screen} failed (attempt ${attempts}):`, err)
-        if (attempts < 3) {
-          setTimeout(tryNavigate, 500)
-        } else {
-          // All retries exhausted — show button fallback
-          addMessage({
-            sender: 'ai',
-            text: 'Не удалось перейти автоматически. Нажми кнопку:',
-            type: 'greeting',
-            greetingData: {
-              menu_buttons: [{ icon: '→', label: NAV_LABELS[screen], screen }],
-            },
-          })
-        }
+        console.error(`[useChat] Navigation to "${screen}" failed (attempt ${idx + 1}):`, err)
+      }
+      if (idx < delays.length) {
+        await new Promise(r => setTimeout(r, delays[idx++]))
+        tryNavigate()
+      } else {
+        showNavFallback(screen)
       }
     }
 
-    setTimeout(tryNavigate, 700)
-  }, [addMessage, opts])
+    setTimeout(tryNavigate, 400)
+  }, [addMessage, opts, showNavFallback])
 
   const send = useCallback(async (text: string) => {
     addMessage({ sender: 'me', text, type: 'text' })
