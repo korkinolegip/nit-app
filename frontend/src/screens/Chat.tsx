@@ -82,23 +82,15 @@ export default function Chat({ onOpenMatch, onNavigateTo, isReturning = false, s
         .then(({ messages: history }) => {
           if (history.length > 0) {
             history.forEach(msg => addMessage({ sender: msg.sender, text: msg.text, type: 'text' }))
-            if (!hasPhotos && sessionComplete) {
-              setTimeout(() => {
-                addMessage({ sender: 'ai', text: 'Загрузи фото чтобы начать находить людей:', type: 'photo_prompt' })
-              }, 300)
-            }
           } else {
             if (sessionComplete) {
               addMessage({
                 sender: 'ai',
                 text: hasPhotos
                   ? 'С возвращением! Профиль готов, алгоритм ищет совместимых людей.'
-                  : 'С возвращением! Профиль создан. Добавь фото — с ними алгоритм работает лучше.',
+                  : 'С возвращением! Профиль создан. Напиши что-нибудь или добавь фото через кнопку ниже.',
                 type: 'text',
               })
-              if (!hasPhotos) {
-                setTimeout(() => addMessage({ sender: 'ai', text: 'Загрузи фото чтобы начать находить людей:', type: 'photo_prompt' }), 600)
-              }
             } else {
               addMessage({ sender: 'ai', text: 'Продолжим? Расскажи о себе — что ещё хочешь добавить.', type: 'text' })
             }
@@ -191,17 +183,20 @@ export default function Chat({ onOpenMatch, onNavigateTo, isReturning = false, s
   }
 
   const handlePhotoUpload = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]
-    if (!file) return
+    const files = Array.from(e.target.files || [])
+    if (files.length === 0) return
     e.target.value = ''
 
-    addMessage({ sender: 'me', text: `📷 ${file.name}`, type: 'text' })
+    const allowed = files.slice(0, 5)
+    addMessage({ sender: 'me', text: `📷 ${allowed.map(f => f.name).join(', ')}`, type: 'text' })
 
     try {
-      await uploadPhotos([file])
+      await uploadPhotos(allowed)
       addMessage({
         sender: 'ai',
-        text: 'Фото добавлено! Можешь загрузить ещё или продолжить.',
+        text: allowed.length > 1
+          ? `Загружено ${allowed.length} фото! Можешь добавить ещё или продолжить.`
+          : 'Фото добавлено! Можешь загрузить ещё или продолжить.',
         type: 'text',
       })
     } catch {
@@ -258,7 +253,7 @@ export default function Chat({ onOpenMatch, onNavigateTo, isReturning = false, s
               }} />
             )}
           </button>
-          {/* Settings button */}
+          {/* Settings button — thread-gear icon */}
           <button
             onClick={() => setIsMenuOpen(true)}
             style={{
@@ -268,10 +263,15 @@ export default function Chat({ onOpenMatch, onNavigateTo, isReturning = false, s
               background: 'none',
             }}
           >
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none">
-              <circle cx="12" cy="5" r="1.5" fill="rgba(255,255,255,.35)" />
-              <circle cx="12" cy="12" r="1.5" fill="rgba(255,255,255,.35)" />
-              <circle cx="12" cy="19" r="1.5" fill="rgba(255,255,255,.35)" />
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none">
+              {/* Center hole */}
+              <circle cx="12" cy="12" r="2.8" stroke="rgba(255,255,255,.45)" strokeWidth="1.4" strokeDasharray="2.2 1.4"/>
+              {/* Gear ring with stitched outline */}
+              <path
+                d="M12 2.5 L13.6 4.7 L16.3 4.0 L17.0 6.7 L19.5 7.7 L18.5 10.3 L20.3 12.0 L18.5 13.7 L19.5 16.3 L17.0 17.3 L16.3 20.0 L13.6 19.3 L12 21.5 L10.4 19.3 L7.7 20.0 L7.0 17.3 L4.5 16.3 L5.5 13.7 L3.7 12.0 L5.5 10.3 L4.5 7.7 L7.0 6.7 L7.7 4.0 L10.4 4.7 Z"
+                stroke="rgba(255,255,255,.45)" strokeWidth="1.3" strokeLinejoin="round"
+                strokeDasharray="2.5 1.6"
+              />
             </svg>
           </button>
         </div>
@@ -337,6 +337,7 @@ export default function Chat({ onOpenMatch, onNavigateTo, isReturning = false, s
         ref={fileInputRef}
         type="file"
         accept="image/*"
+        multiple
         style={{ display: 'none' }}
         onChange={handlePhotoUpload}
       />

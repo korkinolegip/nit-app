@@ -62,26 +62,48 @@ async def _update_profile_from_dialog(user_id: int, user_response: str) -> None:
     except Exception as e:
         logger.warning(f"Profile dialog update failed for user {user_id}: {e}")
 
-_MATCHES_KW = ["добавь в матч", "добавить в матч", "в матчи", "написать ему", "написать ей",
-               "открой матч", "перейти в матч", "перейди в матч", "хочу написать", "мои матчи"]
-_DISCOVERY_KW = ["добавь в люди", "добавить в люди", "открой люди", "открыть людей",
-                 "в список люди", "перейди в люди", "перейти в люди"]
-_FIND_KW = ["найди", "найти", "покажи", "есть ли", "кто есть", "посмотри людей",
-            "подходящих", "кто подходит", "покажи профиль", "профиль"]
-_CHATS_KW = ["мои чаты", "открой чаты", "перейди в чаты", "новые сообщения", "есть сообщения",
-             "кто написал", "открой переписку", "посмотреть сообщения"]
-_VIEWS_KW = ["кто смотрел", "кто меня смотрел", "просмотры", "открой просмотры",
-             "смотрели мой профиль", "кто заходил", "посмотреть просмотры"]
+_MATCHES_KW = [
+    "добавь в матч", "добавить в матч", "написать ему", "написать ей",
+    "открой матч", "перейти в матч", "перейди в матч", "хочу написать",
+    "мои матчи", "открой матчи", "в матчи", "матчи", "мэтчи", "мечи",
+]
+_DISCOVERY_KW = [
+    "добавь в люди", "добавить в люди", "открой люди", "открыть людей",
+    "в список люди", "перейди в люди", "перейти в люди",
+    "открой людей", "покажи людей", "раздел люди", "в люди",
+    "смотреть людей", "смотреть анкеты",
+]
+_FIND_KW = [
+    "найди", "найти", "есть ли", "кто есть", "посмотри людей",
+    "подходящих", "кто подходит",
+]
+_CHATS_KW = [
+    "мои чаты", "открой чаты", "перейди в чаты", "новые сообщения",
+    "есть сообщения", "кто написал", "открой переписку", "посмотреть сообщения",
+    "открой переписки", "мои переписки",
+]
+_VIEWS_KW = [
+    "кто смотрел", "кто меня смотрел", "просмотры", "открой просмотры",
+    "смотрели мой профиль", "кто заходил", "посмотреть просмотры",
+]
+_PROFILE_KW = [
+    "мой профиль", "открой профиль", "перейди в профиль", "моя анкета",
+    "посмотреть профиль", "изменить профиль", "обновить профиль",
+]
 
 
 def _detect_action(text: str) -> str | None:
     t = text.lower()
+    # Check longer/more specific keywords first to avoid false matches
     for kw in _CHATS_KW:
         if kw in t:
             return "go_to_chats"
     for kw in _VIEWS_KW:
         if kw in t:
             return "go_to_views"
+    for kw in _PROFILE_KW:
+        if kw in t:
+            return "go_to_profile"
     for kw in _MATCHES_KW:
         if kw in t:
             return "go_to_matches"
@@ -540,7 +562,10 @@ async def send_message(
         elif action == "find_people":
             reply_type, card_data = await _find_people_cards(user, db)
             if reply_type == "text":
-                result["message"] = "Пока нет подходящих людей — алгоритм ещё подбирает. Убедись, что загружено фото профиля, и загляни в раздел Люди чуть позже."
+                if has_photos:
+                    result["message"] = "Пока нет новых кандидатов — алгоритм ещё подбирает. Загляни в раздел «Люди» чуть позже."
+                else:
+                    result["message"] = "Пока нет подходящих людей. Добавь фото — алгоритм начнёт работать лучше. Загляни в раздел «Люди» чуть позже."
         elif action == "go_to_matches":
             reply_type = "navigate_matches"
         elif action == "go_to_discovery":
@@ -559,7 +584,8 @@ async def send_message(
             card_data=card_data, menu_buttons=menu_buttons,
         )
 
-    result = await process_interview_turn(text, session, db)
+    photos_for_interview = await get_user_photos(db, user.id)
+    result = await process_interview_turn(text, session, db, has_photos=len(photos_for_interview) > 0)
 
     if result is None:
         return ChatMessageResponse(
