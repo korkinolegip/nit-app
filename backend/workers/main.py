@@ -36,7 +36,7 @@ class WorkerSettings:
     ]
     cron_jobs = [
         cron(check_saved_profiles_task, hour={0, 6, 12, 18}, minute=30),
-        cron(bot_editor_task, hour=12, minute=0),
+        cron(bot_editor_task, hour=9, minute=0),
     ]
     redis_settings = RedisSettings.from_dsn(settings.REDIS_URL)
     max_jobs = 10

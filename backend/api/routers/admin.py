@@ -719,47 +719,8 @@ async def admin_generate_post(
 
 # ── GitHub webhook ────────────────────────────────────────────────────────────
 
-@router.post("/github-webhook")
-async def github_webhook(request: Request, db: AsyncSession = Depends(get_db)):
-    if not settings.GITHUB_WEBHOOK_SECRET:
-        raise HTTPException(503, "GITHUB_WEBHOOK_SECRET not configured")
-
-    body_bytes = await request.body()
-    sig_header = request.headers.get("X-Hub-Signature-256", "")
-    expected = "sha256=" + hmac.new(
-        settings.GITHUB_WEBHOOK_SECRET.encode(),
-        body_bytes,
-        hashlib.sha256,
-    ).hexdigest()
-    if not hmac.compare_digest(expected, sig_header):
-        raise HTTPException(401, "Invalid webhook signature")
-
-    event = request.headers.get("X-GitHub-Event", "")
-    if event != "push":
-        return {"ok": True, "skipped": True}
-
-    import json as _json
-    payload = _json.loads(body_bytes)
-    ref = payload.get("ref", "")
-    if ref not in ("refs/heads/main", "refs/heads/master"):
-        return {"ok": True, "skipped": True}
-
-    commits = payload.get("commits", [])
-    # Filter out merge/wip/typo commits
-    skip_patterns = ("merge", "wip", "typo", "Merge", "WIP", "Typo")
-    meaningful = [
-        c for c in commits
-        if not any(c.get("message", "").startswith(p) for p in skip_patterns)
-    ]
-    if not meaningful:
-        return {"ok": True, "skipped": True}
-
-    commit_summaries = [
-        {"id": c["id"][:7], "message": c["message"].split("\n")[0]}
-        for c in meaningful
-    ]
-
-    # Generate text via Groq
+async def _generate_and_save_draft(commit_summaries: list) -> None:
+    """Fire-and-forget: generate text via Groq and persist a draft."""
     generated_text = None
     if settings.GROQ_API_KEY:
         try:
@@ -785,17 +746,62 @@ async def github_webhook(request: Request, db: AsyncSession = Depends(get_db)):
         except Exception as e:
             logger.warning(f"github_webhook: groq generation failed: {e}")
 
-    draft = AdminDraft(
-        type="update",
-        raw_text="\n".join(c["message"] for c in commit_summaries),
-        generated_text=generated_text,
-        status="pending",
-        github_commits=commit_summaries,
-    )
-    db.add(draft)
-    await db.commit()
-    logger.info(f"github_webhook: created draft {draft.id} from {len(meaningful)} commits")
-    return {"ok": True, "draft_id": draft.id}
+    from db.connection import async_session
+    async with async_session() as db:
+        draft = AdminDraft(
+            type="update",
+            raw_text="\n".join(c["message"] for c in commit_summaries),
+            generated_text=generated_text,
+            status="pending",
+            github_commits=commit_summaries,
+        )
+        db.add(draft)
+        await db.commit()
+        logger.info(f"github_webhook: created draft {draft.id} from {len(commit_summaries)} commits")
+
+
+@router.post("/github-webhook")
+async def github_webhook(request: Request):
+    import asyncio
+    if not settings.GITHUB_WEBHOOK_SECRET:
+        raise HTTPException(503, "GITHUB_WEBHOOK_SECRET not configured")
+
+    body_bytes = await request.body()
+    sig_header = request.headers.get("X-Hub-Signature-256", "")
+    expected = "sha256=" + hmac.new(
+        settings.GITHUB_WEBHOOK_SECRET.encode(),
+        body_bytes,
+        hashlib.sha256,
+    ).hexdigest()
+    if not hmac.compare_digest(expected, sig_header):
+        raise HTTPException(401, "Invalid webhook signature")
+
+    event = request.headers.get("X-GitHub-Event", "")
+    if event != "push":
+        return {"ok": True, "skipped": True}
+
+    import json as _json
+    payload = _json.loads(body_bytes)
+    ref = payload.get("ref", "")
+    if ref not in ("refs/heads/main", "refs/heads/master"):
+        return {"ok": True, "skipped": True}
+
+    commits = payload.get("commits", [])
+    skip_patterns = ("merge", "wip", "typo", "Merge", "WIP", "Typo")
+    meaningful = [
+        c for c in commits
+        if not any(c.get("message", "").startswith(p) for p in skip_patterns)
+    ]
+    if not meaningful:
+        return {"ok": True, "skipped": True}
+
+    commit_summaries = [
+        {"id": c["id"][:7], "message": c["message"].split("\n")[0]}
+        for c in meaningful
+    ]
+
+    asyncio.create_task(_generate_and_save_draft(commit_summaries))
+    return {"ok": True, "queued": True}
 
 
 # ── Drafts ────────────────────────────────────────────────────────────────────

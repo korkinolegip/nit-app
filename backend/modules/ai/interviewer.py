@@ -412,20 +412,24 @@ async def process_post_onboarding_turn(
                 if target_user:
                     barrier = _check_match_barrier(user, target_user)
                     collected = dict(session.collected_data)
-                    collected["pending_match_target"] = {
-                        "user_id": target_id,
-                        "name": target_user.name or "",
-                        "missing_patterns": barrier["missing_patterns"],
-                        "can_like": barrier["can_like"],
-                    }
-                    session.collected_data = collected
-                    _flag_modified(session, "collected_data")
                     if barrier["can_like"]:
+                        collected.pop("pending_match_target", None)
+                        session.collected_data = collected
+                        _flag_modified(session, "collected_data")
                         result["action_button"] = {
                             "label": "Перейти к профилю →",
                             "action": "go_to_profile",
                             "target_id": target_id,
                         }
+                    else:
+                        collected["pending_match_target"] = {
+                            "user_id": target_id,
+                            "name": target_user.name or "",
+                            "missing_patterns": barrier["missing_patterns"],
+                            "can_like": barrier["can_like"],
+                        }
+                        session.collected_data = collected
+                        _flag_modified(session, "collected_data")
             except Exception as e:
                 logger.warning(f"pending_match_target update failed: {e}")
 
