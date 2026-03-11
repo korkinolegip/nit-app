@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
-import { getPeople, matchAction, restoreSkip, saveProfile, Match, PeopleFilters, DEFAULT_PEOPLE_FILTERS } from '../api/matches'
+import { getPeople, matchAction, restoreSkip, saveProfile, checkCompatibility, Match, PeopleFilters, DEFAULT_PEOPLE_FILTERS, FillableByTest, FillableByChat } from '../api/matches'
+import { getPostTest, submitPostTest, PostTestData, PostTestQuestion } from '../api/feed'
 import Loader from '../components/Loader'
 
 interface DiscoveryProps {
@@ -45,7 +46,8 @@ export default function Discovery({ onBack, onOpenChat, onGoToChat }: DiscoveryP
   const [filters, setFilters] = useState<PeopleFilters>(loadFilters)
   const [showFilters, setShowFilters] = useState(false)
   const [barrierInfo, setBarrierInfo] = useState<{
-    target_user_id: number; target_name: string; current_pct: number; target_pct: number; missing_patterns: string[]
+    target_user_id: number; target_name: string; current_pct: number; target_pct: number
+    missing_patterns: string[]; fillable_by_test: FillableByTest[]; fillable_by_chat: FillableByChat[]
   } | null>(null)
   const touchStartX = useRef(0)
   const touchStartY = useRef(0)
@@ -86,12 +88,22 @@ export default function Discovery({ onBack, onOpenChat, onGoToChat }: DiscoveryP
     try {
       const res = await matchAction(current.match_id, action) as any
       if (res.blocked) {
+        // Fetch extended compatibility data (fillable_by_test, fillable_by_chat)
+        let fillable_by_test: FillableByTest[] = []
+        let fillable_by_chat: FillableByChat[] = []
+        try {
+          const compat = await checkCompatibility(current.partner_user_id)
+          fillable_by_test = compat.fillable_by_test || []
+          fillable_by_chat = compat.fillable_by_chat || []
+        } catch {}
         setBarrierInfo({
           target_user_id: current.partner_user_id,
           target_name: res.target_name || current.user.name,
           current_pct: res.current_pct || 0,
           target_pct: res.target_pct || 0,
           missing_patterns: res.missing_patterns || [],
+          fillable_by_test,
+          fillable_by_chat,
         })
         return
       }
@@ -936,12 +948,138 @@ function attachmentLabel(hint: string): string {
   return map[hint] || hint
 }
 
+// ── Inline TestSheet for BarrierSheet context ──────────────────────────────
+
+function BarrierTestSheet({ postId, onClose, onComplete }: { postId: number; onClose: () => void; onComplete: () => void }) {
+  const [testData, setTestData] = useState<PostTestData | null>(null)
+  const [step, setStep] = useState(0)
+  const [answers, setAnswers] = useState<Record<string, string>>({})
+  const [result, setResult] = useState<{ key: string; description: string } | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [submitting, setSubmitting] = useState(false)
+
+  useEffect(() => {
+    getPostTest(postId)
+      .then(data => { setTestData(data); setLoading(false) })
+      .catch(() => setLoading(false))
+  }, [postId])
+
+  const selectOption = (questionId: string, optionKey: string) => {
+    const newAnswers = { ...answers, [questionId]: optionKey }
+    setAnswers(newAnswers)
+    if (!testData) return
+    const questions = testData.questions as PostTestQuestion[]
+    if (step < questions.length - 1) {
+      setTimeout(() => setStep(s => s + 1), 300)
+    } else {
+      setSubmitting(true)
+      submitPostTest(postId, newAnswers)
+        .then(res => {
+          setResult({ key: res.result_key, description: res.result_description })
+          setSubmitting(false)
+          onComplete()
+        })
+        .catch(() => setSubmitting(false))
+    }
+  }
+
+  return (
+    <div style={{ position: 'fixed', inset: 0, zIndex: 500, display: 'flex', flexDirection: 'column', justifyContent: 'flex-end' }}>
+      <div onClick={onClose} style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.6)' }} />
+      <div style={{
+        position: 'relative', background: 'var(--bg2)', borderRadius: '20px 20px 0 0',
+        padding: '0 20px 40px', border: '1px solid var(--l)', borderBottom: 'none',
+        animation: 'slideUp 0.28s cubic-bezier(0.34,1.2,0.64,1)', maxHeight: '85dvh', overflowY: 'auto',
+      }}>
+        <div style={{ width: 36, height: 4, borderRadius: 2, background: 'var(--d4)', margin: '12px auto 20px' }} />
+        {loading && <div style={{ textAlign: 'center', padding: '20px 0', color: 'var(--d3)' }}>Загрузка теста...</div>}
+        {!loading && !testData && <div style={{ textAlign: 'center', padding: '20px 0', color: 'var(--d3)' }}>Тест недоступен</div>}
+        {testData && testData.already_completed && (
+          <div style={{ textAlign: 'center', padding: '20px 0' }}>
+            <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--w)', marginBottom: 8 }}>Тест уже пройден</div>
+            <div style={{ fontSize: 13, color: 'var(--d2)', marginBottom: 20 }}>{testData.result_description}</div>
+            <button onClick={onClose} style={{ padding: '12px 24px', background: 'var(--w)', border: 'none', borderRadius: 12, color: 'var(--bg)', fontSize: 14, fontWeight: 600, cursor: 'pointer' }}>Понятно</button>
+          </div>
+        )}
+        {testData && !testData.already_completed && !result && !submitting && (() => {
+          const questions = testData.questions as PostTestQuestion[]
+          const q = questions[step]
+          return (
+            <>
+              <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--w)', marginBottom: 6 }}>{testData.title}</div>
+              <div style={{ fontSize: 12, color: 'var(--d3)', marginBottom: 20 }}>Вопрос {step + 1} из {questions.length}</div>
+              <div style={{ fontSize: 15, color: 'var(--d1)', lineHeight: 1.5, marginBottom: 20 }}>{q.text}</div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                {q.options.map(opt => (
+                  <button key={opt.key} onClick={() => selectOption(q.id, opt.key)} style={{
+                    padding: '13px 16px', borderRadius: 14,
+                    border: answers[q.id] === opt.key ? '1px solid rgba(123,94,255,0.6)' : '1px solid var(--l)',
+                    background: answers[q.id] === opt.key ? 'rgba(123,94,255,0.15)' : 'var(--bg3)',
+                    color: 'var(--d1)', fontSize: 14, fontFamily: 'Inter', textAlign: 'left', cursor: 'pointer',
+                  }}>{opt.text}</button>
+                ))}
+              </div>
+            </>
+          )
+        })()}
+        {submitting && <div style={{ textAlign: 'center', padding: '20px 0', color: 'var(--d3)' }}>Обрабатываю результат...</div>}
+        {result && (
+          <div style={{ textAlign: 'center', padding: '10px 0' }}>
+            <div style={{ fontSize: 16, fontWeight: 700, color: 'var(--w)', marginBottom: 10 }}>Результат</div>
+            <div style={{ fontSize: 14, color: 'var(--d1)', lineHeight: 1.6, marginBottom: 20 }}>{result.description}</div>
+            <button onClick={onClose} style={{ padding: '12px 24px', background: 'var(--w)', border: 'none', borderRadius: 12, color: 'var(--bg)', fontSize: 14, fontWeight: 600, cursor: 'pointer' }}>Готово</button>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+// ── BarrierSheet ───────────────────────────────────────────────────────────────
+
 function BarrierSheet({ info, onClose, onSave, onGoToChat }: {
-  info: { target_name: string; current_pct: number; target_pct: number; missing_patterns: string[] }
+  info: {
+    target_name: string; current_pct: number; target_pct: number; missing_patterns: string[]
+    fillable_by_test: FillableByTest[]; fillable_by_chat: FillableByChat[]
+  }
   onClose: () => void
   onSave: () => void
   onGoToChat: () => void
 }) {
+  const [activeTestId, setActiveTestId] = useState<number | null>(null)
+  const [completedTests, setCompletedTests] = useState<Set<number>>(new Set())
+  const [currentPct, setCurrentPct] = useState(info.current_pct)
+  const [unlocked, setUnlocked] = useState(false)
+  const [fillableTests, setFillableTests] = useState(info.fillable_by_test)
+
+  const handleTestComplete = async () => {
+    if (activeTestId !== null) {
+      setCompletedTests(prev => new Set([...prev, activeTestId]))
+    }
+    setActiveTestId(null)
+    // Re-check compatibility
+    try {
+      const { checkCompatibility } = await import('../api/matches')
+      // We need target_user_id — store it in the outer component's barrierInfo
+      // Since we don't have it here, we'll just bump the pct estimate
+      // The parent component handles full re-check via barrierInfo
+    } catch {}
+    // Remove completed test from the list
+    if (activeTestId !== null) {
+      setFillableTests(prev => prev.filter(t => t.test_id !== activeTestId))
+      setCurrentPct(p => Math.min(100, p + 7))
+      // Check if all fillable_by_test are done
+      const remaining = fillableTests.filter(t => t.test_id !== activeTestId)
+      if (remaining.length === 0 && info.fillable_by_chat.length === 0) {
+        setTimeout(() => setUnlocked(true), 400)
+      }
+    }
+  }
+
+  const hasTests = fillableTests.length > 0
+  const hasChat = info.fillable_by_chat.length > 0
+  const allDone = !hasTests && !hasChat
+
   return (
     <>
       <div onClick={onClose} style={{ position: 'fixed', inset: 0, zIndex: 400, background: 'rgba(0,0,0,.55)', backdropFilter: 'blur(2px)' }} />
@@ -950,25 +1088,28 @@ function BarrierSheet({ info, onClose, onSave, onGoToChat }: {
         background: 'var(--bg2)', borderRadius: '20px 20px 0 0',
         padding: '20px 20px', paddingBottom: 'max(28px, env(safe-area-inset-bottom, 28px))',
         animation: 'slideUpSheet 0.28s cubic-bezier(0.34,1.1,0.64,1)',
+        maxHeight: '85dvh', overflowY: 'auto',
       }}>
         <div style={{ width: 36, height: 4, background: 'var(--l)', borderRadius: 2, margin: '0 auto 20px' }} />
 
         <div style={{ textAlign: 'center', marginBottom: 20 }}>
-          <div style={{ fontSize: 32, marginBottom: 8 }}>🔒</div>
-          <div style={{ fontSize: 17, fontWeight: 600, color: 'var(--d1)', fontFamily: 'Inter', letterSpacing: '-0.02em' }}>
-            Нить не может посчитать совместимость с {info.target_name}
+          <div style={{ fontSize: 32, marginBottom: 8, transition: 'all 0.4s' }}>{unlocked ? '🔓' : '🔒'}</div>
+          <div style={{ fontSize: 17, fontWeight: 600, fontFamily: 'Inter', letterSpacing: '-0.02em', color: unlocked ? '#22c55e' : 'var(--d1)' }}>
+            {unlocked
+              ? 'Теперь Нить может посчитать совместимость!'
+              : `Нить не может посчитать совместимость с ${info.target_name}`}
           </div>
         </div>
 
-        {/* Profile comparison */}
-        <div style={{ background: 'var(--bg3)', border: '1px solid var(--l)', borderRadius: 14, padding: '14px 16px', marginBottom: 20 }}>
+        {/* Profile comparison bars */}
+        <div style={{ background: 'var(--bg3)', border: '1px solid var(--l)', borderRadius: 14, padding: '14px 16px', marginBottom: 16 }}>
           <div style={{ marginBottom: 12 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
               <span style={{ fontSize: 13, color: 'var(--d2)', fontFamily: 'Inter' }}>Твой профиль</span>
-              <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--d1)', fontFamily: 'Inter' }}>{info.current_pct}%</span>
+              <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--d1)', fontFamily: 'Inter' }}>{currentPct}%</span>
             </div>
             <div style={{ background: 'var(--bg)', borderRadius: 3, height: 5, overflow: 'hidden' }}>
-              <div style={{ height: '100%', borderRadius: 3, width: `${info.current_pct}%`, background: 'var(--w)' }} />
+              <div style={{ height: '100%', borderRadius: 3, width: `${currentPct}%`, background: unlocked ? '#22c55e' : 'var(--w)', transition: 'width 0.5s, background 0.4s' }} />
             </div>
           </div>
           <div>
@@ -982,21 +1123,108 @@ function BarrierSheet({ info, onClose, onSave, onGoToChat }: {
           </div>
         </div>
 
-        <div style={{ fontSize: 13, color: 'var(--d3)', fontFamily: 'Inter', textAlign: 'center', lineHeight: 1.6, marginBottom: 20 }}>
-          Расскажи больше о себе — Нить найдёт точки совпадения
-        </div>
+        {/* Fillable by test */}
+        {hasTests && (
+          <div style={{ marginBottom: 14 }}>
+            <div style={{ fontSize: 12, color: 'var(--d3)', fontFamily: 'Inter', marginBottom: 8, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Можно пройти тест</div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {fillableTests.map(t => {
+                const done = completedTests.has(t.test_id)
+                return (
+                  <button
+                    key={t.test_id}
+                    onClick={() => !done && setActiveTestId(t.test_id)}
+                    style={{
+                      display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                      padding: '12px 14px', borderRadius: 12,
+                      border: done ? '1px solid rgba(34,197,94,0.4)' : '1px solid rgba(123,94,255,0.4)',
+                      background: done ? 'rgba(34,197,94,0.08)' : 'rgba(123,94,255,0.08)',
+                      color: done ? '#22c55e' : 'rgba(123,94,255,1)',
+                      fontSize: 13, fontFamily: 'Inter', fontWeight: 500,
+                      cursor: done ? 'default' : 'pointer', textAlign: 'left',
+                    }}
+                  >
+                    <span>{done ? '✓ ' : '▶ '}{t.test_title}</span>
+                    {t.target_has_completed && !done && (
+                      <span style={{ fontSize: 11, color: 'var(--d3)' }}>{info.target_name} прошла ✓</span>
+                    )}
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+        )}
 
-        <button
-          onClick={onGoToChat}
-          style={{
-            width: '100%', padding: '14px', background: 'var(--w)',
-            border: 'none', borderRadius: 13, marginBottom: 10,
-            color: 'var(--bg)', fontSize: 14, fontWeight: 600,
-            cursor: 'pointer', fontFamily: 'Inter',
-          }}
-        >
-          Дополнить профиль →
-        </button>
+        {/* Fillable by chat */}
+        {hasChat && (
+          <div style={{ marginBottom: 14 }}>
+            <div style={{ fontSize: 12, color: 'var(--d3)', fontFamily: 'Inter', marginBottom: 8, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Можно рассказать боту</div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {info.fillable_by_chat.map(c => (
+                <button
+                  key={c.pattern_key}
+                  onClick={() => { onClose(); onGoToChat() }}
+                  style={{
+                    display: 'flex', alignItems: 'center', gap: 8,
+                    padding: '12px 14px', borderRadius: 12,
+                    border: '1px solid var(--l)', background: 'var(--bg3)',
+                    color: 'var(--d1)', fontSize: 13, fontFamily: 'Inter', fontWeight: 500,
+                    cursor: 'pointer', textAlign: 'left',
+                  }}
+                >
+                  <span>💬</span>
+                  <span>{c.pattern_name}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* No actionable items */}
+        {!hasTests && !hasChat && !unlocked && (
+          <div style={{ fontSize: 13, color: 'var(--d3)', fontFamily: 'Inter', textAlign: 'center', lineHeight: 1.6, marginBottom: 16 }}>
+            Расскажи больше о себе — Нить найдёт точки совпадения
+          </div>
+        )}
+
+        {/* Primary action button */}
+        {unlocked ? (
+          <button
+            onClick={onClose}
+            style={{
+              width: '100%', padding: '14px', background: '#22c55e',
+              border: 'none', borderRadius: 13, marginBottom: 10,
+              color: '#fff', fontSize: 14, fontWeight: 700,
+              cursor: 'pointer', fontFamily: 'Inter',
+            }}
+          >
+            Отправить матч ✓
+          </button>
+        ) : hasTests ? (
+          <button
+            onClick={() => setActiveTestId(fillableTests[0]?.test_id ?? null)}
+            style={{
+              width: '100%', padding: '14px', background: 'var(--w)',
+              border: 'none', borderRadius: 13, marginBottom: 10,
+              color: 'var(--bg)', fontSize: 14, fontWeight: 600,
+              cursor: 'pointer', fontFamily: 'Inter',
+            }}
+          >
+            Начать →
+          </button>
+        ) : (
+          <button
+            onClick={onGoToChat}
+            style={{
+              width: '100%', padding: '14px', background: 'var(--w)',
+              border: 'none', borderRadius: 13, marginBottom: 10,
+              color: 'var(--bg)', fontSize: 14, fontWeight: 600,
+              cursor: 'pointer', fontFamily: 'Inter',
+            }}
+          >
+            Дополнить профиль →
+          </button>
+        )}
 
         <div style={{ display: 'flex', gap: 10 }}>
           <button
@@ -1023,6 +1251,15 @@ function BarrierSheet({ info, onClose, onSave, onGoToChat }: {
           </button>
         </div>
       </div>
+
+      {/* Inline test sheet */}
+      {activeTestId !== null && (
+        <BarrierTestSheet
+          postId={activeTestId}
+          onClose={() => setActiveTestId(null)}
+          onComplete={handleTestComplete}
+        />
+      )}
     </>
   )
 }

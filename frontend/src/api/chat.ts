@@ -9,7 +9,7 @@ export interface ChatResponse {
   quick_replies: string[] | null
   card_data: Record<string, any> | null
   menu_buttons?: GreetingMenuButton[] | null
-  action_button?: { label: string; action: string; target_id: number } | null
+  action_button?: { label: string; action: string; target_id?: number; category?: string; test_id?: number | null } | null
 }
 
 export interface ChatStatus {

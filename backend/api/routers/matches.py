@@ -13,7 +13,7 @@ from core.config import settings
 from core.storage import get_photo_signed_url
 from core.telegram import send_notification
 from db.connection import get_db
-from modules.users.models import DailyMatchQuota, InterviewSession, Match, MatchMessage, Photo, User
+from modules.users.models import DailyMatchQuota, InterviewSession, Match, MatchMessage, Photo, Post, PostTest, PostTestResult, User
 from modules.users.repository import get_user
 
 
@@ -40,6 +40,32 @@ _IMPORTANT_DEEP = frozenset({
     "occupation", "interests", "goal", "personality", "values",
     "attachment_style", "partner_ideal", "life_style", "communication", "dealbreakers",
 })
+
+_PATTERN_NAMES: dict[str, str] = {
+    "occupation": "Занятие и образ жизни",
+    "interests": "Интересы и увлечения",
+    "goal": "Цель знакомства",
+    "personality": "Тип личности",
+    "values": "Ценности в отношениях",
+    "attachment_style": "Тип привязанности",
+    "partner_ideal": "Идеальный партнёр",
+    "life_style": "Образ жизни",
+    "communication": "Стиль общения",
+    "dealbreakers": "Стоп-факторы",
+}
+
+_SUGGESTED_QUESTIONS: dict[str, str] = {
+    "values": "Что для тебя важнее всего в отношениях?",
+    "partner_ideal": "Какого человека ты ищешь рядом с собой?",
+    "dealbreakers": "Что для тебя неприемлемо в партнёре?",
+    "goal": "Что ты ищешь — серьёзные отношения, дружбу или что-то другое?",
+    "occupation": "Чем ты занимаешься, что тебя вдохновляет в работе?",
+    "interests": "Чем увлекаешься в свободное время?",
+    "life_style": "Как выглядит твой типичный день?",
+    "communication": "Как ты обычно выстраиваешь общение с близкими?",
+    "personality": "Как бы ты описал(а) свой характер и стиль жизни?",
+    "attachment_style": "Как ты обычно ведёшь себя в отношениях — больше тянешься к близости или ценишь независимость?",
+}
 
 
 def _compute_completeness(user: User, collected_data: dict | None = None) -> tuple[int, list[str], list[str]]:
@@ -324,11 +350,82 @@ async def check_compatibility(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Check if current user can like target user (match barrier)."""
+    """Check if current user can like target user (match barrier). Extended with fillable_by_test/chat."""
     target = await get_user(db, target_user_id)
     if not target:
         raise HTTPException(404, "User not found")
+
+    # Get user's collected_data for already_answered_patterns
+    from modules.users.repository import get_interview_session
+    session = await get_interview_session(db, user.id)
+    cd = dict(session.collected_data or {}) if session else {}
+
     barrier = _check_match_barrier(user, target)
+    _, current_filled, _ = _compute_completeness(user, cd)
+    missing = barrier["missing_patterns"]
+
+    # Find recent PostTests (last 30 days) that may cover missing patterns
+    thirty_days_ago = datetime.now(timezone.utc) - timedelta(days=30)
+    recent_posts_res = await db.execute(
+        select(Post).where(Post.has_test == True, Post.created_at >= thirty_days_ago)
+        .order_by(Post.created_at.desc())
+    )
+    recent_posts = list(recent_posts_res.scalars().all())
+
+    post_test_map: dict[int, PostTest] = {}  # post_id -> PostTest
+    if recent_posts:
+        post_ids = [p.id for p in recent_posts]
+        tests_res = await db.execute(
+            select(PostTest).where(PostTest.post_id.in_(post_ids))
+        )
+        for pt in tests_res.scalars().all():
+            post_test_map[pt.post_id] = pt
+
+    # Check which tests the target user has already completed
+    target_completed_test_ids: set[int] = set()
+    if post_test_map:
+        test_ids = [pt.id for pt in post_test_map.values()]
+        target_results_res = await db.execute(
+            select(PostTestResult).where(
+                PostTestResult.user_id == target.id,
+                PostTestResult.test_id.in_(test_ids),
+            )
+        )
+        target_completed_test_ids = {r.test_id for r in target_results_res.scalars().all()}
+
+    fillable_by_test = []
+    fillable_by_chat = []
+
+    for pattern in missing:
+        matched_post_id: int | None = None
+        matched_test: PostTest | None = None
+        for post_id, pt in post_test_map.items():
+            rm = pt.result_mapping or {}
+            covers = any(
+                pattern in (res_data.get("patterns") or {})
+                for res_data in rm.values()
+                if isinstance(res_data, dict)
+            )
+            if covers:
+                matched_post_id = post_id
+                matched_test = pt
+                break
+
+        if matched_test is not None and matched_post_id is not None:
+            fillable_by_test.append({
+                "pattern_key": pattern,
+                "pattern_name": _PATTERN_NAMES.get(pattern, pattern),
+                "test_id": matched_post_id,
+                "test_title": matched_test.title,
+                "target_has_completed": matched_test.id in target_completed_test_ids,
+            })
+        else:
+            fillable_by_chat.append({
+                "pattern_key": pattern,
+                "pattern_name": _PATTERN_NAMES.get(pattern, pattern),
+                "suggested_question": _SUGGESTED_QUESTIONS.get(pattern, ""),
+            })
+
     return {
         "can_like": barrier["can_like"],
         "partial": barrier["partial"],
@@ -339,7 +436,60 @@ async def check_compatibility(
         "target_pct": barrier["target_pct"],
         "target_name": barrier["target_name"],
         "message": barrier["message"],
+        "fillable_by_test": fillable_by_test,
+        "fillable_by_chat": fillable_by_chat,
+        "already_answered_patterns": current_filled,
     }
+
+
+@router.get("/user/{user_id}/tests")
+async def get_user_tests(
+    user_id: int,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Completed tests for a user. Full details for own profile, category-only for others."""
+    target = await get_user(db, user_id)
+    if not target:
+        raise HTTPException(404, "User not found")
+
+    is_own = user.id == user_id
+
+    results_res = await db.execute(
+        select(PostTestResult)
+        .where(PostTestResult.user_id == user_id)
+        .order_by(PostTestResult.completed_at.desc())
+    )
+    results = list(results_res.scalars().all())
+    if not results:
+        return {"tests": []}
+
+    test_ids = [r.test_id for r in results]
+    tests_res = await db.execute(select(PostTest).where(PostTest.id.in_(test_ids)))
+    test_map = {pt.id: pt for pt in tests_res.scalars().all()}
+
+    output = []
+    for r in results:
+        pt = test_map.get(r.test_id)
+        if not pt:
+            continue
+        rm = pt.result_mapping or {}
+        result_data = rm.get(r.result_key or "", {}) if isinstance(rm, dict) else {}
+        patterns = result_data.get("patterns", {}) if isinstance(result_data, dict) else {}
+        pattern_key = next(iter(patterns.keys()), None)
+
+        item: dict = {
+            "test_id": pt.post_id,
+            "category": pt.title,
+            "pattern_key": pattern_key,
+            "result_key": r.result_key,
+        }
+        if is_own:
+            item["result_title"] = result_data.get("description", "") if isinstance(result_data, dict) else ""
+            item["completed_at"] = r.completed_at.isoformat()
+        output.append(item)
+
+    return {"tests": output}
 
 
 @router.get("")

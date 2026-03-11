@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { getProfile, updateProfile, deleteProfile, uploadPhotos, deletePhoto, setPrimaryPhoto } from '../api/profile'
+import { getProfile, updateProfile, deleteProfile, uploadPhotos, deletePhoto, setPrimaryPhoto, getMyTests, CompletedTest } from '../api/profile'
 import { getUserFeed, getUserFeedStats, FeedPost, toggleLike, toggleSave, deletePost } from '../api/feed'
 
 interface ProfileProps {
@@ -65,6 +65,7 @@ export default function Profile({ onBack, onGoToChat }: ProfileProps) {
   const [stats, setStats] = useState<{ posts_count: number; total_likes: number } | null>(null)
   const [posts, setPosts] = useState<FeedPost[]>([])
   const [postsLoading, setPostsLoading] = useState(false)
+  const [myTests, setMyTests] = useState<CompletedTest[]>([])
 
   useEffect(() => {
     getProfile()
@@ -72,7 +73,6 @@ export default function Profile({ onBack, onGoToChat }: ProfileProps) {
         const user = data.user || data
         setProfile(user)
         setPhotos((data.photos || []).filter((p: PhotoData) => p.url))
-        // Fetch stats after we have user id
         if (user.id) {
           getUserFeedStats(user.id)
             .then(s => setStats(s))
@@ -81,6 +81,7 @@ export default function Profile({ onBack, onGoToChat }: ProfileProps) {
       })
       .catch(() => {})
       .finally(() => setLoading(false))
+    getMyTests().then(r => setMyTests(r.tests)).catch(() => {})
   }, [])
 
   useEffect(() => {
@@ -652,6 +653,32 @@ export default function Profile({ onBack, onGoToChat }: ProfileProps) {
                 )
               })}
             </div>
+
+            {/* Tests section */}
+            {myTests.length > 0 && (
+              <div style={{ marginTop: 20 }}>
+                <div style={{ fontSize: 11, fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase' as const, color: 'var(--d3)', marginBottom: 10 }}>
+                  Пройденные тесты
+                </div>
+                <div style={{ display: 'flex', flexWrap: 'wrap' as const, gap: 8 }}>
+                  {myTests.map(t => (
+                    <div
+                      key={t.test_id}
+                      title={t.result_title}
+                      style={{
+                        padding: '7px 12px', borderRadius: 20,
+                        background: 'rgba(123,94,255,0.12)', border: '1px solid rgba(123,94,255,0.3)',
+                        fontSize: 12, color: 'rgba(160,130,255,1)', fontFamily: 'Inter', fontWeight: 500,
+                        display: 'flex', alignItems: 'center', gap: 5,
+                      }}
+                    >
+                      <span>✓</span>
+                      <span>{t.category}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
 
             <div style={{
               marginTop: '20px', padding: '14px 16px',

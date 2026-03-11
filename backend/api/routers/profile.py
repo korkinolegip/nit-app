@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 
 logger = logging.getLogger(__name__)
 from pydantic import BaseModel
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.middleware.auth import get_current_user
@@ -18,7 +19,7 @@ from core.storage import delete_file, get_photo_signed_url, upload_file
 from core.telegram import send_notification
 from db.connection import get_db
 from modules.matching.runner import run_matching_for_user
-from modules.users.models import Match, Photo, User
+from modules.users.models import Match, Photo, PostTest, PostTestResult, User
 from modules.users.repository import get_user, get_user_photos, get_interview_session, create_interview_session
 
 router = APIRouter(prefix="/api/profile", tags=["profile"])
@@ -71,6 +72,14 @@ async def get_profile(
     from api.routers.matches import _compute_completeness
     pct, filled, missing = _compute_completeness(user)
 
+    # Fetch completed tests count
+    test_results_res = await db.execute(
+        select(PostTestResult).where(PostTestResult.user_id == user.id)
+        .order_by(PostTestResult.completed_at.desc())
+    )
+    test_results = list(test_results_res.scalars().all())
+    completed_tests_count = len(test_results)
+
     return ProfileResponse(
         user={
             "id": user.id,
@@ -89,6 +98,7 @@ async def get_profile(
             "filled_patterns": filled,
             "missing_patterns": missing,
             "is_admin": getattr(user, "is_admin", False),
+            "completed_tests_count": completed_tests_count,
         },
         photos=photo_list,
         personality=personality,
@@ -350,6 +360,46 @@ async def set_primary_photo(
         p.is_primary = p.id == photo_id
     await db.commit()
     return {"status": "ok"}
+
+
+@router.get("/tests")
+async def get_my_tests(
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Current user's completed tests with full details."""
+    results_res = await db.execute(
+        select(PostTestResult)
+        .where(PostTestResult.user_id == user.id)
+        .order_by(PostTestResult.completed_at.desc())
+    )
+    results = list(results_res.scalars().all())
+    if not results:
+        return {"tests": []}
+
+    test_ids = [r.test_id for r in results]
+    tests_res = await db.execute(select(PostTest).where(PostTest.id.in_(test_ids)))
+    test_map = {pt.id: pt for pt in tests_res.scalars().all()}
+
+    output = []
+    for r in results:
+        pt = test_map.get(r.test_id)
+        if not pt:
+            continue
+        rm = pt.result_mapping or {}
+        result_data = rm.get(r.result_key or "", {}) if isinstance(rm, dict) else {}
+        patterns = result_data.get("patterns", {}) if isinstance(result_data, dict) else {}
+        pattern_key = next(iter(patterns.keys()), None)
+        output.append({
+            "test_id": pt.post_id,
+            "category": pt.title,
+            "pattern_key": pattern_key,
+            "result_key": r.result_key,
+            "result_title": result_data.get("description", "") if isinstance(result_data, dict) else "",
+            "completed_at": r.completed_at.isoformat(),
+        })
+
+    return {"tests": output}
 
 
 @router.post("/pause")

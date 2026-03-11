@@ -32,3 +32,16 @@ export async function setPrimaryPhoto(photoId: number) {
 export async function deleteProfile() {
   return apiRequest('/api/profile', { method: 'DELETE' })
 }
+
+export interface CompletedTest {
+  test_id: number
+  category: string
+  pattern_key: string | null
+  result_key: string | null
+  result_title: string
+  completed_at: string
+}
+
+export async function getMyTests(): Promise<{ tests: CompletedTest[] }> {
+  return apiRequest('/api/profile/tests')
+}

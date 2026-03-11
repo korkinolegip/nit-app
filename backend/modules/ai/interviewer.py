@@ -343,12 +343,41 @@ async def process_post_onboarding_turn(
     if pending:
         pmt_name = pending.get("name", "")
         pmt_missing = pending.get("missing_patterns", [])
+        pmt_already = pending.get("already_answered_patterns", [])
+        pmt_fillable_tests = pending.get("fillable_by_test", [])
+
+        _PATTERN_NAME_MAP = {
+            "occupation": "занятие и образ жизни", "interests": "интересы и увлечения",
+            "goal": "цель знакомства", "personality": "тип личности",
+            "values": "ценности в отношениях", "attachment_style": "тип привязанности",
+            "partner_ideal": "идеальный партнёр", "life_style": "образ жизни",
+            "communication": "стиль общения", "dealbreakers": "стоп-факторы",
+        }
+
         if pmt_missing:
-            missing_str = ", ".join(pmt_missing)
+            missing_named = [_PATTERN_NAME_MAP.get(p, p) for p in pmt_missing]
+            missing_str = ", ".join(missing_named)
+            already_str = (
+                f"\n  Уже известно о пользователе: {', '.join(_PATTERN_NAME_MAP.get(p, p) for p in pmt_already)} — НЕ спрашивай об этом."
+                if pmt_already else ""
+            )
+            test_hint = ""
+            if pmt_fillable_tests:
+                test_categories = [t.get("test_title", t.get("pattern_key", "")) for t in pmt_fillable_tests[:2]]
+                test_hint = (
+                    f"\n  Для паттернов {', '.join(test_categories)} есть короткий тест. "
+                    "Если пользователь предпочитает тест а не вопросы — верни action_button: "
+                    '{{"action": "suggest_test", "label": "Пройти тест →", '
+                    f'"category": "{test_categories[0] if test_categories else ""}", "test_id": {pmt_fillable_tests[0].get("test_id") if pmt_fillable_tests else "null"}}}.'
+                )
             system += (
-                f"\n\nКОНТЕКСТ МАТЧА: Пользователь хочет отправить матч {pmt_name}. "
-                f"Для расчёта совместимости не хватает следующих паттернов: {missing_str}. "
-                "Задавай вопросы ТОЛЬКО по этим паттернам — не отвлекайся на другие темы."
+                f"\n\nКОНТЕКСТ МАТЧА С {pmt_name}:\n"
+                f"  Цель: заполнить недостающие паттерны для расчёта совместимости.\n"
+                f"{already_str}"
+                f"\n  Не хватает (в порядке приоритета): {missing_str}.\n"
+                f"  Задавай вопросы ТОЛЬКО по этим паттернам. Задавай по ОДНОМУ вопросу за раз.\n"
+                f"  После заполнения паттерна сообщай прогресс: «Отлично, теперь ближе к совместимости с {pmt_name}»."
+                f"{test_hint}"
             )
         else:
             system += (
@@ -422,11 +451,16 @@ async def process_post_onboarding_turn(
                             "target_id": target_id,
                         }
                     else:
+                        # Compute already_answered for context
+                        from api.routers.matches import _compute_completeness
+                        _, current_filled, _ = _compute_completeness(user, collected)
                         collected["pending_match_target"] = {
                             "user_id": target_id,
                             "name": target_user.name or "",
                             "missing_patterns": barrier["missing_patterns"],
                             "can_like": barrier["can_like"],
+                            "already_answered_patterns": current_filled,
+                            "fillable_by_test": [],  # populated by check-compatibility endpoint
                         }
                         session.collected_data = collected
                         _flag_modified(session, "collected_data")

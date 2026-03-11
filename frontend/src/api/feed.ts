@@ -112,9 +112,12 @@ export interface PostTestQuestion {
 }
 
 export interface PostTestData {
-  test_id: number
-  title: string
-  questions: PostTestQuestion[]
+  test_id?: number
+  title?: string
+  questions?: PostTestQuestion[]
+  already_completed?: boolean
+  result_key?: string
+  result_description?: string
 }
 
 export async function getPostTest(postId: number): Promise<PostTestData> {

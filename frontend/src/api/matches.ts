@@ -53,6 +53,20 @@ export interface MatchesResponse {
   my_missing_categories: string[]
 }
 
+export interface FillableByTest {
+  pattern_key: string
+  pattern_name: string
+  test_id: number
+  test_title: string
+  target_has_completed: boolean
+}
+
+export interface FillableByChat {
+  pattern_key: string
+  pattern_name: string
+  suggested_question: string
+}
+
 export interface CheckCompatibilityResult {
   can_like: boolean
   partial: boolean
@@ -62,10 +76,26 @@ export interface CheckCompatibilityResult {
   target_pct: number
   target_name: string
   message: string
+  fillable_by_test: FillableByTest[]
+  fillable_by_chat: FillableByChat[]
+  already_answered_patterns: string[]
 }
 
 export async function checkCompatibility(targetUserId: number): Promise<CheckCompatibilityResult> {
   return apiRequest(`/api/matches/check-compatibility/${targetUserId}`) as Promise<CheckCompatibilityResult>
+}
+
+export interface CompletedTest {
+  test_id: number
+  category: string
+  pattern_key: string | null
+  result_key: string | null
+  result_title?: string
+  completed_at?: string
+}
+
+export async function getUserTests(userId: number): Promise<{ tests: CompletedTest[] }> {
+  return apiRequest(`/api/matches/user/${userId}/tests`)
 }
 
 export async function getMatches(offset = 0): Promise<MatchesResponse> {

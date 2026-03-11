@@ -4,7 +4,9 @@ import { sendMessage, ChatResponse } from '../api/chat'
 export interface ActionButton {
   label: string
   action: string
-  target_id: number
+  target_id?: number
+  category?: string
+  test_id?: number | null
 }
 
 export interface Message {

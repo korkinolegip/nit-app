@@ -8,6 +8,7 @@ import MenuSheet from '../components/MenuSheet'
 import { transcribeVoice, getChatHistory, pingActivity, getGreeting } from '../api/chat'
 import { uploadPhotos } from '../api/profile'
 import { matchAction } from '../api/matches'
+import { getPostTest, submitPostTest, PostTestData, PostTestQuestion } from '../api/feed'
 
 interface CardItem {
   match_id: number
@@ -32,8 +33,85 @@ interface ChatProps {
   isAdmin?: boolean
 }
 
+function ChatTestSheet({ postId, onClose, onComplete }: { postId: number; onClose: () => void; onComplete: (resultDesc: string) => void }) {
+  const [testData, setTestData] = useState<PostTestData | null>(null)
+  const [step, setStep] = useState(0)
+  const [answers, setAnswers] = useState<Record<string, string>>({})
+  const [result, setResult] = useState<string | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [submitting, setSubmitting] = useState(false)
+
+  useEffect(() => {
+    getPostTest(postId).then(d => { setTestData(d); setLoading(false) }).catch(() => setLoading(false))
+  }, [postId])
+
+  const selectOption = (questionId: string, optionKey: string) => {
+    const newAnswers = { ...answers, [questionId]: optionKey }
+    setAnswers(newAnswers)
+    if (!testData) return
+    const questions = testData.questions as PostTestQuestion[]
+    if (step < questions.length - 1) {
+      setTimeout(() => setStep(s => s + 1), 300)
+    } else {
+      setSubmitting(true)
+      submitPostTest(postId, newAnswers)
+        .then(res => {
+          setResult(res.result_description)
+          setSubmitting(false)
+          onComplete(res.result_description)
+        })
+        .catch(() => setSubmitting(false))
+    }
+  }
+
+  return (
+    <div style={{ position: 'fixed', inset: 0, zIndex: 500, display: 'flex', flexDirection: 'column', justifyContent: 'flex-end' }}>
+      <div onClick={onClose} style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.6)' }} />
+      <div style={{
+        position: 'relative', background: 'var(--bg2)', borderRadius: '20px 20px 0 0',
+        padding: '0 20px 40px', border: '1px solid var(--l)', borderBottom: 'none',
+        animation: 'slideUp 0.28s cubic-bezier(0.34,1.2,0.64,1)', maxHeight: '85dvh', overflowY: 'auto',
+      }}>
+        <div style={{ width: 36, height: 4, borderRadius: 2, background: 'var(--d4)', margin: '12px auto 20px' }} />
+        {loading && <div style={{ textAlign: 'center', padding: 20, color: 'var(--d3)' }}>Загрузка...</div>}
+        {!loading && !testData && <div style={{ textAlign: 'center', padding: 20, color: 'var(--d3)' }}>Тест недоступен</div>}
+        {testData && !result && !submitting && (() => {
+          const questions = testData.questions as PostTestQuestion[]
+          const q = questions[step]
+          return q ? (
+            <>
+              <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--w)', marginBottom: 6 }}>{testData.title}</div>
+              <div style={{ fontSize: 12, color: 'var(--d3)', marginBottom: 20 }}>Вопрос {step + 1} из {questions.length}</div>
+              <div style={{ fontSize: 15, color: 'var(--d1)', lineHeight: 1.5, marginBottom: 20 }}>{q.text}</div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                {q.options.map(opt => (
+                  <button key={opt.key} onClick={() => selectOption(q.id, opt.key)} style={{
+                    padding: '13px 16px', borderRadius: 14,
+                    border: answers[q.id] === opt.key ? '1px solid rgba(123,94,255,0.6)' : '1px solid var(--l)',
+                    background: answers[q.id] === opt.key ? 'rgba(123,94,255,0.15)' : 'var(--bg3)',
+                    color: 'var(--d1)', fontSize: 14, fontFamily: 'Inter', textAlign: 'left', cursor: 'pointer',
+                  }}>{opt.text}</button>
+                ))}
+              </div>
+            </>
+          ) : null
+        })()}
+        {submitting && <div style={{ textAlign: 'center', padding: 20, color: 'var(--d3)' }}>Обрабатываю...</div>}
+        {result && (
+          <div style={{ textAlign: 'center', padding: 10 }}>
+            <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--w)', marginBottom: 10 }}>Готово!</div>
+            <div style={{ fontSize: 14, color: 'var(--d1)', lineHeight: 1.6, marginBottom: 20 }}>{result}</div>
+            <button onClick={onClose} style={{ padding: '12px 24px', background: 'var(--w)', border: 'none', borderRadius: 12, color: 'var(--bg)', fontSize: 14, fontWeight: 600, cursor: 'pointer' }}>Понятно</button>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
 export default function Chat({ onOpenMatch, onNavigateTo, isReturning = false, sessionComplete = false, hasPhotos = false, badges = {}, isAdmin = false }: ChatProps) {
   const [pendingTarget, setPendingTarget] = useState<{ id: number; name: string } | null>(null)
+  const [suggestTestId, setSuggestTestId] = useState<number | null>(null)
   const { messages, isTyping, quickReplies, send, addMessage, scrollRef, setQuickReplies, actionButton, setActionButton } = useChat({ onNavigate: onNavigateTo, targetUserId: pendingTarget?.id ?? null })
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [isMenuOpen, setIsMenuOpen] = useState(false)
@@ -355,28 +433,69 @@ export default function Chat({ onOpenMatch, onNavigateTo, isReturning = false, s
 
       <QuickReplies replies={quickReplies} onSelect={(text) => send(text)} />
 
-      {/* Action button from pending match target */}
+      {/* Action button from pending match target / suggest_test */}
       {actionButton && (
         <div style={{
           padding: '10px 16px', borderTop: '1px solid var(--l)',
           background: 'var(--bg2)', flexShrink: 0,
         }}>
-          <button
-            onClick={() => {
-              setActionButton(null)
-              setPendingTarget(null)
-              onNavigateTo('discovery')
-            }}
-            style={{
-              width: '100%', padding: '13px', borderRadius: '14px',
-              background: 'var(--accent, #7B5EFF)', border: 'none',
-              color: '#fff', fontSize: '14px', fontWeight: 600,
-              fontFamily: 'Inter', cursor: 'pointer',
-            }}
-          >
-            {actionButton.label}
-          </button>
+          {actionButton.action === 'suggest_test' && actionButton.test_id != null ? (
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button
+                onClick={() => {
+                  setSuggestTestId(actionButton.test_id!)
+                  setActionButton(null)
+                }}
+                style={{
+                  flex: 1, padding: '13px', borderRadius: '14px',
+                  background: 'var(--accent, #7B5EFF)', border: 'none',
+                  color: '#fff', fontSize: '14px', fontWeight: 600,
+                  fontFamily: 'Inter', cursor: 'pointer',
+                }}
+              >
+                {actionButton.label}
+              </button>
+              <button
+                onClick={() => { setActionButton(null) }}
+                style={{
+                  flex: 1, padding: '13px', borderRadius: '14px',
+                  background: 'none', border: '1px solid var(--l)',
+                  color: 'var(--d2)', fontSize: '14px', fontFamily: 'Inter', cursor: 'pointer',
+                }}
+              >
+                Лучше расскажу
+              </button>
+            </div>
+          ) : (
+            <button
+              onClick={() => {
+                setActionButton(null)
+                setPendingTarget(null)
+                onNavigateTo('discovery')
+              }}
+              style={{
+                width: '100%', padding: '13px', borderRadius: '14px',
+                background: 'var(--accent, #7B5EFF)', border: 'none',
+                color: '#fff', fontSize: '14px', fontWeight: 600,
+                fontFamily: 'Inter', cursor: 'pointer',
+              }}
+            >
+              {actionButton.label}
+            </button>
+          )}
         </div>
+      )}
+
+      {/* Inline test sheet triggered by suggest_test */}
+      {suggestTestId !== null && (
+        <ChatTestSheet
+          postId={suggestTestId}
+          onClose={() => setSuggestTestId(null)}
+          onComplete={(resultDesc) => {
+            setSuggestTestId(null)
+            addMessage({ sender: 'ai', text: `✓ Тест пройден: ${resultDesc}`, type: 'text' })
+          }}
+        />
       )}
 
       <input
