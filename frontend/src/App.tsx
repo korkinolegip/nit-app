@@ -8,12 +8,13 @@ import Profile from './screens/Profile'
 import Matches from './screens/Matches'
 import ProfileViews from './screens/ProfileViews'
 import Feed from './screens/Feed'
+import SavedProfiles from './screens/SavedProfiles'
 import { initAuth } from './api/client'
 import { getChatStatus } from './api/chat'
 import { getMatches } from './api/matches'
 import { getViewsCount } from './api/views'
 
-type Screen = 'welcome' | 'chat' | 'matchChat' | 'discovery' | 'matches' | 'chats' | 'views' | 'profile' | 'feed'
+type Screen = 'welcome' | 'chat' | 'matchChat' | 'discovery' | 'matches' | 'chats' | 'views' | 'profile' | 'feed' | 'saved'
 
 interface Badges {
   matches: number
@@ -118,6 +119,7 @@ export default function App() {
       {screen === 'chats' && <Matches onBack={backToChat} onOpenChat={openMatchChat} chatsOnly />}
       {screen === 'views' && <ProfileViews onBack={backToChat} onOpenMatch={openMatchChat} />}
       {screen === 'feed' && <Feed onBack={backToChat} />}
+      {screen === 'saved' && <SavedProfiles onBack={backToChat} onGoToChat={openChat} onOpenChat={openMatchChat} />}
     </>
   )
 }

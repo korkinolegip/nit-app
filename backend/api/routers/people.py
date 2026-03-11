@@ -143,6 +143,57 @@ async def get_people(
     return {"matches": people[offset: offset + limit], "total": len(people)}
 
 
+@router.get("/saved-profiles")
+async def get_saved_profiles(
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """List profiles saved by current user due to barrier, with unlock status."""
+    from api.routers.matches import _compute_completeness, _check_match_barrier
+
+    result = await db.execute(
+        text("SELECT target_id, saved_at FROM saved_profiles WHERE user_id = :uid ORDER BY saved_at DESC"),
+        {"uid": user.id},
+    )
+    rows = result.fetchall()
+
+    saved = []
+    for row in rows:
+        target = await db.get(User, row.target_id)
+        if not target:
+            continue
+
+        barrier = _check_match_barrier(user, target)
+
+        # Primary photo
+        photos_q = await db.execute(
+            select(Photo)
+            .where(Photo.user_id == target.id, Photo.moderation_status == "approved")
+            .order_by(Photo.is_primary.desc(), Photo.sort_order)
+            .limit(1)
+        )
+        primary_photo = photos_q.scalar_one_or_none()
+        avatar_url = ""
+        if primary_photo:
+            try:
+                avatar_url = await get_photo_signed_url(primary_photo.storage_key)
+            except Exception:
+                pass
+
+        saved.append({
+            "target_id": target.id,
+            "name": target.name or "—",
+            "age": target.age,
+            "city": target.city,
+            "avatar_url": avatar_url,
+            "target_pct": barrier["target_pct"],
+            "current_pct": barrier["current_pct"],
+            "can_like": barrier["can_like"],
+        })
+
+    return {"saved": saved}
+
+
 @router.post("/{target_id}/save-profile")
 async def save_profile(
     target_id: int,

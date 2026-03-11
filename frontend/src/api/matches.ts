@@ -196,3 +196,18 @@ export async function likeUser(userId: number): Promise<DirectLikeResponse> {
 export async function saveProfile(targetUserId: number): Promise<{ ok: boolean }> {
   return apiRequest(`/api/users/${targetUserId}/save-profile`, { method: 'POST' })
 }
+
+export interface SavedProfile {
+  target_id: number
+  name: string
+  age: number | null
+  city: string | null
+  avatar_url: string
+  target_pct: number
+  current_pct: number
+  can_like: boolean
+}
+
+export async function getSavedProfiles(): Promise<{ saved: SavedProfile[] }> {
+  return apiRequest('/api/users/saved-profiles')
+}
