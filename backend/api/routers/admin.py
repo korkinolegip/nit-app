@@ -362,10 +362,23 @@ async def wipe_all_users(
     return {"ok": True, "message": "All users and related data deleted"}
 
 
+class AdminUserPatch(BaseModel):
+    name: str | None = None
+    age: int | None = None
+    city: str | None = None
+    occupation: str | None = None
+    goal: str | None = None
+    partner_preference: str | None = None
+    is_active: bool | None = None
+    is_admin: bool | None = None
+    is_blocked: bool | None = None
+    is_banned: bool | None = None
+
+
 @router.patch("/users/{user_id}")
 async def admin_patch_user(
     user_id: int,
-    body: "AdminUserPatch",
+    body: AdminUserPatch,
     admin: User = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ):
@@ -408,18 +421,6 @@ class DraftCreateRequest(BaseModel):
 class DraftPatchRequest(BaseModel):
     generated_text: str | None = None
     status: str | None = None
-
-class AdminUserPatch(BaseModel):
-    name: str | None = None
-    age: int | None = None
-    city: str | None = None
-    occupation: str | None = None
-    goal: str | None = None
-    partner_preference: str | None = None
-    is_active: bool | None = None
-    is_admin: bool | None = None
-    is_blocked: bool | None = None
-    is_banned: bool | None = None
 
 
 # ── Dashboard stats ───────────────────────────────────────────────────────────

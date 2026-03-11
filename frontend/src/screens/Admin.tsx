@@ -480,7 +480,7 @@ function UserDetail({ userId, onClose, onDeleted }: {
     try {
       const [u, p] = await Promise.all([
         adminGet(`/users/${userId}`),
-        adminGet(`/users/${userId}/posts`),
+        adminGet(`/users/${userId}/posts`).catch(() => ({ posts: [] })),
       ])
       setUser(u)
       setEditData({
