@@ -5,6 +5,14 @@ import { getUserFeed, getUserFeedStats, FeedPost, toggleLike, toggleSave, delete
 interface ProfileProps {
   onBack: () => void
   onGoToChat?: () => void
+  onNavigateViews?: () => void
+  onNavigateSaved?: () => void
+  onOpenSettings?: () => void
+  isPaused?: boolean
+  onTogglePause?: () => void
+  isAdmin?: boolean
+  onNavigateAdmin?: () => void
+  viewsBadge?: number
 }
 
 interface ProfileData {
@@ -45,7 +53,7 @@ function timeAgo(iso: string): string {
   return new Date(iso).toLocaleDateString('ru', { day: 'numeric', month: 'short' })
 }
 
-export default function Profile({ onBack, onGoToChat }: ProfileProps) {
+export default function Profile({ onBack, onGoToChat, onNavigateViews, onNavigateSaved, onOpenSettings, isPaused = false, onTogglePause, isAdmin = false, onNavigateAdmin, viewsBadge = 0 }: ProfileProps) {
   const [profile, setProfile] = useState<ProfileData & { id?: number }>({})
   const [photos, setPhotos] = useState<PhotoData[]>([])
   const [photoIndex, setPhotoIndex] = useState(0)
@@ -245,7 +253,7 @@ export default function Profile({ onBack, onGoToChat }: ProfileProps) {
       </div>
 
       {/* Scrollable content */}
-      <div style={{ flex: 1, overflowY: 'auto', padding: '24px 16px calc(80px + env(safe-area-inset-bottom, 0px))' }}>
+      <div style={{ flex: 1, overflowY: 'auto', padding: '24px 16px calc(88px + env(safe-area-inset-bottom, 0px))' }}>
         {loading ? (
           <div style={{ display: 'flex', justifyContent: 'center', paddingTop: '60px' }}>
             <div style={{ width: 8, height: 8, borderRadius: '50%', background: 'var(--d3)' }} />
@@ -381,6 +389,92 @@ export default function Profile({ onBack, onGoToChat }: ProfileProps) {
                 </button>
               )}
             </div>
+
+            {/* Quick-access navigation cards */}
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 12 }}>
+              {onNavigateViews && (
+                <button
+                  onClick={onNavigateViews}
+                  style={{
+                    background: 'var(--bg3)', border: '1px solid var(--l)', borderRadius: 14,
+                    padding: '14px 16px', display: 'flex', alignItems: 'center', gap: 10,
+                    cursor: 'pointer', position: 'relative', textAlign: 'left',
+                  }}
+                >
+                  <span style={{ fontSize: 20 }}>👁</span>
+                  <span style={{ fontSize: 14, fontWeight: 500, color: 'var(--d1)', fontFamily: 'Inter' }}>Просмотры</span>
+                  {viewsBadge > 0 && (
+                    <div style={{
+                      position: 'absolute', top: 8, right: 10,
+                      background: '#ff4466', color: '#fff',
+                      borderRadius: 20, minWidth: 18, height: 18,
+                      fontSize: 11, fontWeight: 700,
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      padding: '0 5px',
+                    }}>
+                      {viewsBadge > 99 ? '99+' : viewsBadge}
+                    </div>
+                  )}
+                </button>
+              )}
+              {onNavigateSaved && (
+                <button
+                  onClick={onNavigateSaved}
+                  style={{
+                    background: 'var(--bg3)', border: '1px solid var(--l)', borderRadius: 14,
+                    padding: '14px 16px', display: 'flex', alignItems: 'center', gap: 10,
+                    cursor: 'pointer', textAlign: 'left',
+                  }}
+                >
+                  <span style={{ fontSize: 20 }}>🔖</span>
+                  <span style={{ fontSize: 14, fontWeight: 500, color: 'var(--d1)', fontFamily: 'Inter' }}>Отложенные</span>
+                </button>
+              )}
+              {onOpenSettings && (
+                <button
+                  onClick={onOpenSettings}
+                  style={{
+                    background: 'var(--bg3)', border: '1px solid var(--l)', borderRadius: 14,
+                    padding: '14px 16px', display: 'flex', alignItems: 'center', gap: 10,
+                    cursor: 'pointer', textAlign: 'left',
+                  }}
+                >
+                  <span style={{ fontSize: 20 }}>⚙️</span>
+                  <span style={{ fontSize: 14, fontWeight: 500, color: 'var(--d1)', fontFamily: 'Inter' }}>Настройки</span>
+                </button>
+              )}
+              {onTogglePause && (
+                <button
+                  onClick={onTogglePause}
+                  style={{
+                    background: isPaused ? 'rgba(34,197,94,0.08)' : 'var(--bg3)',
+                    border: isPaused ? '1px solid rgba(34,197,94,0.3)' : '1px solid var(--l)',
+                    borderRadius: 14,
+                    padding: '14px 16px', display: 'flex', alignItems: 'center', gap: 10,
+                    cursor: 'pointer', textAlign: 'left',
+                  }}
+                >
+                  <span style={{ fontSize: 20 }}>{isPaused ? '▶️' : '⏸'}</span>
+                  <span style={{ fontSize: 14, fontWeight: 500, color: isPaused ? '#22c55e' : 'var(--d1)', fontFamily: 'Inter' }}>
+                    {isPaused ? 'Снять паузу' : 'Пауза'}
+                  </span>
+                </button>
+              )}
+            </div>
+            {isAdmin && onNavigateAdmin && (
+              <button
+                onClick={onNavigateAdmin}
+                style={{
+                  width: '100%', background: 'rgba(123,94,255,0.08)',
+                  border: '1px solid rgba(123,94,255,0.3)', borderRadius: 14,
+                  padding: '14px 16px', display: 'flex', alignItems: 'center', gap: 10,
+                  cursor: 'pointer', marginBottom: 12, textAlign: 'left',
+                }}
+              >
+                <span style={{ fontSize: 20 }}>🛡️</span>
+                <span style={{ fontSize: 14, fontWeight: 500, color: 'rgba(160,130,255,1)', fontFamily: 'Inter' }}>Админ-панель</span>
+              </button>
+            )}
 
             {/* Stats row */}
             <div style={{

@@ -141,7 +141,7 @@ export default function App() {
   // BottomNav hidden during chat overlay or MatchChat (has its own input bar)
   const bottomNavHidden = chatOpen || screen === 'matchChat'
   // Nav height offset for content padding
-  const navPaddingBottom = bottomNavHidden ? '0px' : 'calc(56px + env(safe-area-inset-bottom, 0px))'
+  const navPaddingBottom = bottomNavHidden ? '0px' : 'calc(68px + env(safe-area-inset-bottom, 0px))'
 
   if (screen === null) {
     return <Loader fullScreen />
@@ -179,7 +179,18 @@ export default function App() {
           <ProfileViews onBack={() => setScreen('profile')} onOpenMatch={openMatchChat} />
         )}
         {screen === 'profile' && (
-          <Profile onBack={openChat} onGoToChat={openChat} />
+          <Profile
+            onBack={openChat}
+            onGoToChat={openChat}
+            onNavigateViews={() => setScreen('views')}
+            onNavigateSaved={() => setScreen('saved')}
+            onOpenSettings={() => setSettingsOpen(true)}
+            isPaused={isPaused}
+            onTogglePause={handleTogglePause}
+            isAdmin={isAdmin}
+            onNavigateAdmin={() => setScreen('admin')}
+            viewsBadge={badges.views}
+          />
         )}
         {screen === 'saved' && (
           <SavedProfiles onBack={() => setScreen('profile')} onGoToChat={openChat} onOpenChat={openMatchChat} />
