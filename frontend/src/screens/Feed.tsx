@@ -51,11 +51,6 @@ function PostSkeleton() {
 // ─── Welcome Banner ───────────────────────────────────────────────────────────
 
 function WelcomeBanner({ onClose }: { onClose: () => void }) {
-  useEffect(() => {
-    const timer = setTimeout(onClose, 6000)
-    return () => clearTimeout(timer)
-  }, [onClose])
-
   return (
     <div style={{
       margin: '0 0 12px',
@@ -65,13 +60,10 @@ function WelcomeBanner({ onClose }: { onClose: () => void }) {
       display: 'flex', alignItems: 'flex-start', gap: 12,
       animation: 'fadeIn 0.4s ease',
     }}>
-      <div style={{ fontSize: 24, flexShrink: 0 }}>✦</div>
+      <div style={{ fontSize: 22, flexShrink: 0 }}>🧵</div>
       <div style={{ flex: 1 }}>
-        <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--d1)', fontFamily: 'Inter', marginBottom: 4 }}>
-          Добро пожаловать в Нить!
-        </div>
         <div style={{ fontSize: 13, color: 'var(--d2)', fontFamily: 'Inter', lineHeight: 1.5 }}>
-          Здесь ты найдёшь людей и статьи об отношениях. Загляни в раздел Люди чтобы найти совпадения.
+          Лайкай посты, проходи тесты — Нить узнает тебя лучше и найдёт более точный матч 🧵
         </div>
       </div>
       <button
@@ -350,8 +342,10 @@ function PostCard({ post, onLike, onRepost, onSave, onComment, onDelete, onTakeT
 
   return (
     <div style={{
-      background: 'var(--bg2)', borderRadius: 18, overflow: 'hidden',
-      border: '1px solid var(--l)', marginBottom: 12,
+      background: post.is_bot_post ? 'rgba(123,94,255,0.06)' : 'var(--bg2)',
+      borderRadius: 18, overflow: 'hidden',
+      border: post.is_bot_post ? '1px solid rgba(123,94,255,0.2)' : '1px solid var(--l)',
+      marginBottom: 12,
     }}>
       {/* Header */}
       <div style={{ padding: '14px 14px 0', display: 'flex', alignItems: 'center', gap: 10 }}>
@@ -369,7 +363,7 @@ function PostCard({ post, onLike, onRepost, onSave, onComment, onDelete, onTakeT
               display: 'flex', alignItems: 'center', justifyContent: 'center',
               fontSize: 16, color: 'var(--d3)',
             }}>
-              {post.is_bot_post ? '✦' : (post.author.name?.[0] || '?')}
+              {post.is_bot_post ? '🧵' : (post.author.name?.[0] || '?')}
             </div>
           )}
         </div>
@@ -382,8 +376,9 @@ function PostCard({ post, onLike, onRepost, onSave, onComment, onDelete, onTakeT
             {post.is_bot_post && (
               <span style={{
                 marginLeft: 6, fontSize: 10, fontWeight: 600,
-                color: 'rgba(255,255,255,.35)', letterSpacing: '.04em',
-                background: 'var(--bg4)', borderRadius: 4, padding: '1px 5px',
+                color: '#a880ff', letterSpacing: '.04em',
+                background: 'rgba(123,94,255,0.15)', borderRadius: 4, padding: '1px 6px',
+                border: '1px solid rgba(123,94,255,0.3)',
                 verticalAlign: 'middle',
               }}>
                 редакция
@@ -935,13 +930,29 @@ export default function Feed({ onBack }: FeedProps) {
   const [commentPostId, setCommentPostId] = useState<number | null>(null)
   const [testPostId, setTestPostId] = useState<number | null>(null)
   const [showWelcome, setShowWelcome] = useState(() => {
-    return !localStorage.getItem('nit_welcome_seen')
+    const dismissed = localStorage.getItem('feed_banner_dismissed') === '1'
+    if (dismissed) return false
+    const count = parseInt(localStorage.getItem('feed_banner_shown_count') || '0', 10)
+    return count < 3
   })
   const scrollRef = useRef<HTMLDivElement>(null)
   const PAGE = 20
 
+  useEffect(() => {
+    if (showWelcome) {
+      const count = parseInt(localStorage.getItem('feed_banner_shown_count') || '0', 10)
+      const next = count + 1
+      localStorage.setItem('feed_banner_shown_count', String(next))
+      if (next >= 3) {
+        // After 3rd view without dismissal, hide permanently next time
+        // but still show this time (already mounted)
+      }
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
   const handleDismissWelcome = () => {
-    localStorage.setItem('nit_welcome_seen', '1')
+    localStorage.setItem('feed_banner_dismissed', '1')
     setShowWelcome(false)
   }
 

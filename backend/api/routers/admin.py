@@ -2,7 +2,7 @@ import hashlib
 import hmac
 import logging
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import httpx
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request
@@ -17,7 +17,7 @@ from db.connection import get_db
 from modules.matching.runner import run_matching_for_user
 from modules.users.models import (
     AdminDraft, InterviewSession, Match, MatchMessage,
-    ModerationLog, Photo, Post, PostComment, Report, User,
+    ModerationLog, Photo, Post, PostComment, PostTest, PostTestResult, Report, User,
 )
 
 logger = logging.getLogger(__name__)
@@ -423,6 +423,7 @@ async def admin_stats(
     admin: User = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ):
+    today_start = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
     r = await db.execute(text("""
         SELECT
             (SELECT COUNT(*) FROM users WHERE NOT is_bot_editor) AS total_users,
@@ -434,8 +435,16 @@ async def admin_stats(
             (SELECT COUNT(*) FROM posts WHERE NOT is_bot_post) AS user_posts,
             (SELECT COUNT(*) FROM posts WHERE is_bot_post) AS bot_posts,
             (SELECT COUNT(*) FROM post_comments) AS total_comments,
-            (SELECT COUNT(*) FROM admin_drafts WHERE status = 'pending') AS pending_drafts
-    """))
+            (SELECT COUNT(*) FROM admin_drafts WHERE status = 'pending') AS pending_drafts,
+            (SELECT COUNT(*) FROM post_test_results) AS tests_completed_total,
+            (SELECT COUNT(*) FROM post_test_results WHERE completed_at >= now() - interval '7 days') AS tests_completed_7d,
+            (SELECT COALESCE(AVG(profile_completeness_pct), 0)::int FROM users WHERE NOT is_bot_editor AND profile_completeness_pct IS NOT NULL) AS avg_profile_completeness,
+            (SELECT COUNT(*) FROM interview_sessions WHERE collected_data->>'pending_match_target' IS NOT NULL) AS users_with_pending_match,
+            (SELECT COUNT(*) FROM users WHERE NOT is_bot_editor AND created_at >= :today) AS new_users_today,
+            (SELECT COUNT(*) FROM matches WHERE created_at >= :today) AS matches_today,
+            (SELECT COUNT(*) FROM posts WHERE created_at >= :today) AS posts_today,
+            (SELECT COUNT(*) FROM post_test_results WHERE completed_at >= :today) AS tests_today
+    """), {"today": today_start})
     row = r.mappings().one()
     return dict(row)
 
@@ -447,12 +456,28 @@ async def admin_list_users(
     offset: int = 0,
     limit: int = 50,
     search: str | None = None,
+    sort: str = "created_at",
+    filter: str = "all",
     admin: User = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ):
-    q = select(User).where(User.is_bot_editor == False).order_by(User.id.desc()).offset(offset).limit(limit)
+    q = select(User).where(User.is_bot_editor == False)
     if search:
         q = q.where(User.name.ilike(f"%{search}%"))
+    if filter == "blocked":
+        q = q.where(User.is_blocked == True)
+    elif filter == "pending_match":
+        subq = select(InterviewSession.user_id).where(
+            text("collected_data->>'pending_match_target' IS NOT NULL")
+        )
+        q = q.where(User.id.in_(subq))
+    if sort == "last_seen":
+        q = q.order_by(User.last_seen.desc().nullslast())
+    elif sort == "profile_completeness_pct":
+        q = q.order_by(User.profile_completeness_pct.desc().nullslast())
+    else:
+        q = q.order_by(User.id.desc())
+    q = q.offset(offset).limit(limit)
     result = await db.execute(q)
     users = result.scalars().all()
     return {"users": [
@@ -464,6 +489,7 @@ async def admin_list_users(
             "is_blocked": getattr(u, "is_blocked", False),
             "is_admin": getattr(u, "is_admin", False),
             "onboarding_step": u.onboarding_step,
+            "profile_completeness_pct": u.profile_completeness_pct,
             "created_at": u.created_at.isoformat() if getattr(u, "created_at", None) else None,
             "last_seen": u.last_seen.isoformat() if u.last_seen else None,
         }
@@ -501,11 +527,72 @@ async def admin_get_user(
         posts_count = posts_count_res.scalar() or 0
 
         try:
-            from api.routers.matches import _compute_completeness
-            pct, filled, missing = _compute_completeness(u)
+            from api.routers.matches import _compute_completeness, _PATTERN_NAMES
+            session = await db.execute(
+                select(InterviewSession).where(InterviewSession.user_id == u.id)
+            )
+            sess = session.scalar_one_or_none()
+            collected = dict(sess.collected_data or {}) if sess else {}
+            pct, filled, missing = _compute_completeness(u, collected)
         except Exception as e:
             logger.warning(f"admin_get_user: _compute_completeness failed: {e}")
             pct, filled, missing = 0, [], []
+            collected = {}
+            _PATTERN_NAMES = {}
+
+        # completed tests
+        completed_tests = []
+        try:
+            ct_res = await db.execute(
+                select(PostTestResult, PostTest)
+                .join(PostTest, PostTest.id == PostTestResult.test_id)
+                .where(PostTestResult.user_id == u.id)
+                .order_by(PostTestResult.completed_at.desc())
+            )
+            for ptr, pt in ct_res.all():
+                completed_tests.append({
+                    "category": pt.title or "",
+                    "result_key": ptr.result_key,
+                    "completed_at": ptr.completed_at.isoformat(),
+                })
+        except Exception as e:
+            logger.warning(f"admin_get_user: completed_tests failed: {e}")
+
+        # matches list
+        matches_list = []
+        try:
+            ml_res = await db.execute(text("""
+                SELECT m.id, m.status, m.compatibility_score, m.created_at,
+                       CASE WHEN m.user1_id = :uid THEN u2.name ELSE u1.name END AS partner_name
+                FROM matches m
+                LEFT JOIN users u1 ON u1.id = m.user1_id
+                LEFT JOIN users u2 ON u2.id = m.user2_id
+                WHERE m.user1_id = :uid OR m.user2_id = :uid
+                ORDER BY m.created_at DESC LIMIT 20
+            """), {"uid": u.id})
+            for row in ml_res.mappings().all():
+                matches_list.append({
+                    "partner_name": row["partner_name"] or "—",
+                    "status": row["status"],
+                    "compatibility_score": row["compatibility_score"],
+                    "created_at": row["created_at"].isoformat(),
+                })
+        except Exception as e:
+            logger.warning(f"admin_get_user: matches_list failed: {e}")
+
+        # pending_match_target
+        pending_match_target = collected.get("pending_match_target")
+
+        # Readable collected_data (exclude internal keys)
+        _SKIP_KEYS = {"pending_match_target", "messages"}
+        readable_data = {
+            _PATTERN_NAMES.get(k, k): v
+            for k, v in collected.items()
+            if k not in _SKIP_KEYS and not k.startswith("_")
+        }
+
+        filled_patterns_named = {k: _PATTERN_NAMES.get(k, k) for k in filled}
+        missing_patterns_named = [_PATTERN_NAMES.get(k, k) for k in missing]
 
         return {
             "id": u.id, "name": u.name, "age": u.age, "city": u.city,
@@ -522,8 +609,14 @@ async def admin_get_user(
             "profile_completeness_pct": pct,
             "filled_patterns": filled,
             "missing_patterns": missing,
+            "filled_patterns_named": filled_patterns_named,
+            "missing_patterns_named": missing_patterns_named,
+            "collected_data_readable": readable_data,
             "posts_count": posts_count,
             "photos": photos,
+            "completed_tests": completed_tests,
+            "matches_list": matches_list,
+            "pending_match_target": pending_match_target,
             "created_at": u.created_at.isoformat() if getattr(u, "created_at", None) else None,
             "last_seen": u.last_seen.isoformat() if u.last_seen else None,
         }
@@ -666,19 +759,42 @@ async def admin_get_chat_messages(
 async def admin_list_posts(
     offset: int = 0,
     limit: int = 50,
+    filter: str = "all",
     admin: User = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ):
-    result = await db.execute(
-        select(Post).order_by(Post.id.desc()).offset(offset).limit(limit)
-    )
+    q = select(Post).order_by(Post.id.desc()).offset(offset).limit(limit)
+    if filter == "bot":
+        q = select(Post).where(Post.is_bot_post == True).order_by(Post.id.desc()).offset(offset).limit(limit)
+    elif filter == "users":
+        q = select(Post).where(Post.is_bot_post == False).order_by(Post.id.desc()).offset(offset).limit(limit)
+    elif filter == "with_test":
+        q = select(Post).where(Post.has_test == True).order_by(Post.id.desc()).offset(offset).limit(limit)
+    result = await db.execute(q)
     posts = result.scalars().all()
+
+    # fetch test titles and completion counts
+    post_ids = [p.id for p in posts if p.has_test]
+    test_info: dict[int, dict] = {}
+    if post_ids:
+        tr = await db.execute(text("""
+            SELECT pt.post_id, pt.title, COUNT(ptr.id) AS completions
+            FROM post_tests pt
+            LEFT JOIN post_test_results ptr ON ptr.test_id = pt.id
+            WHERE pt.post_id = ANY(:ids)
+            GROUP BY pt.post_id, pt.title
+        """), {"ids": post_ids})
+        for row in tr.mappings().all():
+            test_info[row["post_id"]] = {"title": row["title"], "completions": row["completions"]}
+
     return {"posts": [
         {
             "id": p.id, "author_id": p.author_id, "is_bot_post": p.is_bot_post,
             "text": (p.text or "")[:200], "hashtags": p.hashtags,
             "likes_count": p.likes_count, "comments_count": p.comments_count,
             "has_test": p.has_test,
+            "test_title": test_info.get(p.id, {}).get("title") if p.has_test else None,
+            "test_completions_count": test_info.get(p.id, {}).get("completions", 0) if p.has_test else 0,
             "created_at": p.created_at.isoformat(),
         }
         for p in posts
@@ -1096,6 +1212,120 @@ async def admin_regenerate_draft(
     d.generated_text = r.json()["choices"][0]["message"]["content"].strip()
     await db.commit()
     return _draft_dict(d)
+
+
+@router.get("/bot-status")
+async def admin_bot_status(
+    admin: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    r = await db.execute(text("""
+        SELECT title, summary, created_at FROM bot_post_history ORDER BY created_at DESC LIMIT 1
+    """))
+    row = r.mappings().fetchone()
+    total_r = await db.execute(text("SELECT COUNT(*) FROM posts WHERE is_bot_post"))
+    total_bot_posts = total_r.scalar() or 0
+
+    now_utc = datetime.now(timezone.utc)
+    today_09 = now_utc.replace(hour=9, minute=0, second=0, microsecond=0)
+    next_scheduled = today_09 if now_utc < today_09 else today_09 + timedelta(days=1)
+
+    return {
+        "last_post_at": row["created_at"].isoformat() if row else None,
+        "last_post_preview": (row["summary"] or "")[:80] if row else None,
+        "next_scheduled": next_scheduled.isoformat(),
+        "total_bot_posts": total_bot_posts,
+        "schedule_description": "Ежедневно в 12:00 по Москве",
+    }
+
+
+@router.post("/trigger-bot-post")
+async def admin_trigger_bot_post(
+    admin: User = Depends(require_admin),
+):
+    try:
+        from workers.tasks.bot_editor import bot_editor_task
+        await bot_editor_task(ctx=None, force=True)
+    except Exception as e:
+        raise HTTPException(500, f"Bot post failed: {e}")
+    return {"success": True}
+
+
+@router.get("/test-templates")
+async def admin_test_templates(
+    admin: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    r = await db.execute(text("""
+        SELECT tt.id, tt.category, tt.pattern_key, tt.title, tt.description,
+               tt.used_count, tt.last_used_at, tt.base_questions,
+               COALESCE(COUNT(ptr.id), 0) AS completions_count
+        FROM test_templates tt
+        LEFT JOIN post_tests pt ON pt.title = tt.title
+        LEFT JOIN post_test_results ptr ON ptr.test_id = pt.id
+        GROUP BY tt.id
+        ORDER BY tt.id
+    """))
+    rows = r.mappings().all()
+    return {"templates": [
+        {
+            "id": row["id"],
+            "category": row["category"],
+            "pattern_key": row["pattern_key"],
+            "title": row["title"],
+            "description": row["description"],
+            "used_count": row["used_count"],
+            "last_used_at": row["last_used_at"].isoformat() if row["last_used_at"] else None,
+            "completions_count": row["completions_count"],
+            "questions_count": len(row["base_questions"] or []),
+        }
+        for row in rows
+    ]}
+
+
+@router.get("/test-results")
+async def admin_test_results(
+    limit: int = 10,
+    offset: int = 0,
+    admin: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    r = await db.execute(text("""
+        SELECT ptr.id, ptr.result_key, ptr.completed_at,
+               u.name AS user_name, u.id AS user_id,
+               pt.title AS test_title
+        FROM post_test_results ptr
+        JOIN users u ON u.id = ptr.user_id
+        JOIN post_tests pt ON pt.id = ptr.test_id
+        ORDER BY ptr.completed_at DESC
+        LIMIT :limit OFFSET :offset
+    """), {"limit": limit, "offset": offset})
+    rows = r.mappings().all()
+
+    items = []
+    for row in rows:
+        avatar_url = ""
+        try:
+            ph_res = await db.execute(
+                select(Photo).where(
+                    Photo.user_id == row["user_id"],
+                    Photo.moderation_status == "approved",
+                ).order_by(Photo.is_primary.desc()).limit(1)
+            )
+            ph = ph_res.scalar_one_or_none()
+            if ph:
+                avatar_url = await get_photo_signed_url(ph.storage_key)
+        except Exception:
+            pass
+        items.append({
+            "user_name": row["user_name"] or "—",
+            "user_id": row["user_id"],
+            "avatar_url": avatar_url,
+            "test_title": row["test_title"],
+            "result_key": row["result_key"],
+            "completed_at": row["completed_at"].isoformat(),
+        })
+    return {"results": items}
 
 
 def _draft_dict(d: AdminDraft) -> dict:

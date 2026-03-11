@@ -175,7 +175,7 @@ async def _save_to_history(db, post_id: int, text_content: str, fmt: str) -> Non
     """))
 
 
-async def bot_editor_task(ctx):
+async def bot_editor_task(ctx, force: bool = False):
     """Daily: generate and publish a post from 'Нить Daily' bot editor."""
     async with async_session() as db:
         # Find bot editor user
@@ -185,17 +185,18 @@ async def bot_editor_task(ctx):
             logger.warning("bot_editor_task: no bot editor user found")
             return
 
-        # Check if there was a post in the last 12 hours
-        twelve_hours_ago = datetime.now(timezone.utc) - timedelta(hours=12)
-        recent = await db.execute(
-            select(Post).where(
-                Post.author_id == bot_user.id,
-                Post.created_at >= twelve_hours_ago,
-            ).limit(1)
-        )
-        if recent.scalar_one_or_none():
-            logger.info("bot_editor_task: recent post exists, skipping")
-            return
+        # Check if there was a post in the last 12 hours (skip if force=True)
+        if not force:
+            twelve_hours_ago = datetime.now(timezone.utc) - timedelta(hours=12)
+            recent = await db.execute(
+                select(Post).where(
+                    Post.author_id == bot_user.id,
+                    Post.created_at >= twelve_hours_ago,
+                ).limit(1)
+            )
+            if recent.scalar_one_or_none():
+                logger.info("bot_editor_task: recent post exists, skipping")
+                return
 
         # Get history of recent posts
         history = await _get_recent_history(db)
