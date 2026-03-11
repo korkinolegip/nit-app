@@ -27,27 +27,78 @@ def _to_list(val) -> list:
     return []
 
 
-def _profile_completeness(user: User) -> tuple[str, list[str]]:
-    """Return (level, missing_categories) for the current user's own profile."""
-    missing: list[str] = []
-    if not _to_list(user.strengths):
-        missing.append("interests")
-    if not user.occupation:
-        missing.append("work")
-    if not user.personality_type:
-        missing.append("values")
-    if not user.profile_text or len(user.profile_text) < 80:
-        missing.append("life_goals")
-    if not _to_list(user.ideal_partner_traits):
-        missing.append("relationship_style")
+# ─── Profile completeness ─────────────────────────────────────────────────────
 
-    if len(missing) >= 4:
-        level = "low"
-    elif len(missing) >= 2:
-        level = "medium"
+_PATTERN_WEIGHTS: dict[str, int] = {
+    "name": 8, "age": 8, "city": 8, "gender": 8, "looking_for": 8,
+    "occupation": 7, "interests": 7, "goal": 7, "personality": 7, "values": 7,
+    "attachment_style": 5, "partner_ideal": 5, "life_style": 5,
+    "communication": 5, "dealbreakers": 5,
+}
+
+_IMPORTANT_DEEP = frozenset({
+    "occupation", "interests", "goal", "personality", "values",
+    "attachment_style", "partner_ideal", "life_style", "communication", "dealbreakers",
+})
+
+
+def _compute_completeness(user: User, collected_data: dict | None = None) -> tuple[int, list[str], list[str]]:
+    """Return (pct, filled_patterns, missing_patterns)."""
+    cd = collected_data or {}
+    checks = {
+        "name":             bool(user.name),
+        "age":              bool(user.age),
+        "city":             bool(user.city),
+        "gender":           bool(user.gender),
+        "looking_for":      bool(user.partner_preference),
+        "occupation":       bool(user.occupation),
+        "interests":        bool(_to_list(user.strengths)),
+        "goal":             bool(user.goal),
+        "personality":      bool(user.personality_type),
+        "values":           bool(user.profile_text and len(user.profile_text) >= 30),
+        "attachment_style": bool(user.attachment_hint),
+        "partner_ideal":    bool(_to_list(user.ideal_partner_traits)),
+        "life_style":       bool(user.primary_dimension),
+        "communication":    bool(user.raw_intro_text or cd.get("social_energy")),
+        "dealbreakers":     bool(cd.get("red_flags")),
+    }
+    filled = [p for p, v in checks.items() if v]
+    missing = [p for p, v in checks.items() if not v]
+    pct = min(100, sum(_PATTERN_WEIGHTS[p] for p in filled))
+    return pct, filled, missing
+
+
+def _profile_completeness_level(pct: int) -> str:
+    if pct < 40:
+        return "low"
+    if pct < 70:
+        return "medium"
+    return "full"
+
+
+def _check_match_barrier(current: User, target: User) -> dict:
+    """Check if current user can like target. Returns barrier info dict."""
+    current_pct, current_filled, _ = _compute_completeness(current)
+    target_pct, target_filled, _ = _compute_completeness(target)
+    critical_missing = (set(target_filled) - set(current_filled)) & _IMPORTANT_DEEP
+    n = len(critical_missing)
+    can_like = n < 3
+    if not can_like:
+        msg = f"Расскажи больше о себе чтобы Нить смогла посчитать совместимость с {target.name}"
+    elif n > 0:
+        msg = "Совместимость посчитана частично — расскажи больше о себе"
     else:
-        level = "full"
-    return level, missing
+        msg = ""
+    return {
+        "can_like": can_like,
+        "partial": can_like and n > 0,
+        "missing_patterns": list(critical_missing),
+        "missing_patterns_count": n,
+        "current_pct": current_pct,
+        "target_pct": target_pct,
+        "target_name": target.name,
+        "message": msg,
+    }
 
 
 def _is_online(last_seen: datetime | None) -> bool:
@@ -170,6 +221,7 @@ async def get_user_profile(
         return []
 
     goal_labels = {"romantic": "Романтические отношения", "friendship": "Дружба", "open": "Открыт к общению"}
+    target_pct, _, _ = _compute_completeness(target)
     return {
         "user_id": target.id,
         "name": target.name,
@@ -187,6 +239,7 @@ async def get_user_profile(
         "is_online": _is_online(target.last_seen),
         "last_seen_text": _last_seen_text(target.last_seen),
         "created_at": target.created_at.isoformat() if target.created_at else None,
+        "profile_completeness_pct": target_pct,
     }
 
 
@@ -204,6 +257,14 @@ async def like_user_directly(
     target = await get_user(db, user_id)
     if not target:
         raise HTTPException(404, "User not found")
+
+    # Check match barrier
+    barrier = _check_match_barrier(user, target)
+    if not barrier["can_like"]:
+        return {
+            "blocked": True,
+            **{k: barrier[k] for k in ("missing_patterns", "missing_patterns_count", "current_pct", "target_pct", "target_name", "message")},
+        }
 
     # Enforce user1_id < user2_id constraint
     u1_id, u2_id = min(user.id, user_id), max(user.id, user_id)
@@ -257,6 +318,30 @@ async def like_user_directly(
     }
 
 
+@router.get("/check-compatibility/{target_user_id}")
+async def check_compatibility(
+    target_user_id: int,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Check if current user can like target user (match barrier)."""
+    target = await get_user(db, target_user_id)
+    if not target:
+        raise HTTPException(404, "User not found")
+    barrier = _check_match_barrier(user, target)
+    return {
+        "can_like": barrier["can_like"],
+        "partial": barrier["partial"],
+        "compatibility_score": None,
+        "missing_patterns": barrier["missing_patterns"],
+        "missing_patterns_count": barrier["missing_patterns_count"],
+        "current_pct": barrier["current_pct"],
+        "target_pct": barrier["target_pct"],
+        "target_name": barrier["target_name"],
+        "message": barrier["message"],
+    }
+
+
 @router.get("")
 async def get_matches(
     limit: int = 5,
@@ -265,7 +350,8 @@ async def get_matches(
     db: AsyncSession = Depends(get_db),
 ):
     # Compute current user's profile completeness once
-    completeness_level, missing_cats = _profile_completeness(user)
+    completeness_pct, filled_patterns, missing_cats = _compute_completeness(user)
+    completeness_level = _profile_completeness_level(completeness_pct)
 
     # Persist missing_for_compatibility to collected_data for the AI agent to use
     if missing_cats:
@@ -377,6 +463,7 @@ async def get_matches(
         "matches": match_list,
         "remaining_today": max(0, remaining),
         "my_profile_completeness": completeness_level,
+        "my_profile_completeness_pct": completeness_pct,
         "my_missing_categories": missing_cats,
     }
 
@@ -394,11 +481,29 @@ async def match_action(
 
     # Determine which user slot
     if match.user1_id == user.id:
+        pass  # will set after barrier check
+    elif match.user2_id == user.id:
+        pass
+    else:
+        raise HTTPException(403, "Not your match")
+
+    # Check match barrier for 'like' action
+    if body.action == "like":
+        partner_id_early = match.user2_id if match.user1_id == user.id else match.user1_id
+        partner_early = await db.get(User, partner_id_early)
+        if partner_early:
+            barrier = _check_match_barrier(user, partner_early)
+            if not barrier["can_like"]:
+                return {
+                    "blocked": True,
+                    "mutual_match": False,
+                    **{k: barrier[k] for k in ("missing_patterns", "current_pct", "target_pct", "target_name", "message")},
+                }
+
+    if match.user1_id == user.id:
         match.user1_action = body.action
     elif match.user2_id == user.id:
         match.user2_action = body.action
-    else:
-        raise HTTPException(403, "Not your match")
 
     mutual = False
     date_prep = None

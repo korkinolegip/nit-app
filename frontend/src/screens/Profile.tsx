@@ -4,6 +4,7 @@ import { getUserFeed, getUserFeedStats, FeedPost, toggleLike, toggleSave, delete
 
 interface ProfileProps {
   onBack: () => void
+  onGoToChat?: () => void
 }
 
 interface ProfileData {
@@ -15,6 +16,8 @@ interface ProfileData {
   occupation?: string
   personality_type?: string
   profile_text?: string
+  profile_completeness_pct?: number
+  missing_patterns?: string[]
 }
 
 interface PhotoData {
@@ -42,7 +45,7 @@ function timeAgo(iso: string): string {
   return new Date(iso).toLocaleDateString('ru', { day: 'numeric', month: 'short' })
 }
 
-export default function Profile({ onBack }: ProfileProps) {
+export default function Profile({ onBack, onGoToChat }: ProfileProps) {
   const [profile, setProfile] = useState<ProfileData & { id?: number }>({})
   const [photos, setPhotos] = useState<PhotoData[]>([])
   const [photoIndex, setPhotoIndex] = useState(0)
@@ -391,23 +394,62 @@ export default function Profile({ onBack }: ProfileProps) {
             </div>
 
             {/* Stats row */}
-            {stats && (
+            <div style={{
+              display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)',
+              gap: 8, marginBottom: 16,
+            }}>
+              {[
+                { value: stats?.posts_count ?? 0, label: 'постов' },
+                { value: stats?.total_likes ?? 0, label: 'лайков' },
+                { value: profile.profile_completeness_pct != null ? `${profile.profile_completeness_pct}%` : '—', label: 'профиль' },
+              ].map(({ value, label }) => (
+                <div key={label} style={{
+                  background: 'var(--bg3)', border: '1px solid var(--l)',
+                  borderRadius: 14, padding: '12px 16px', textAlign: 'center',
+                }}>
+                  <div style={{ fontSize: 20, fontWeight: 700, color: 'var(--d1)', fontFamily: 'Inter', letterSpacing: '-0.02em' }}>{value}</div>
+                  <div style={{ fontSize: 11, color: 'var(--d3)', fontFamily: 'Inter', marginTop: 2 }}>{label}</div>
+                </div>
+              ))}
+            </div>
+
+            {/* Completeness progress bar */}
+            {profile.profile_completeness_pct != null && profile.profile_completeness_pct < 100 && (
               <div style={{
-                display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)',
-                gap: 8, marginBottom: 16,
+                background: 'var(--bg3)', border: '1px solid var(--l)',
+                borderRadius: 14, padding: '14px 16px', marginBottom: 16,
               }}>
-                {[
-                  { value: stats.posts_count, label: 'постов' },
-                  { value: stats.total_likes, label: 'лайков' },
-                ].map(({ value, label }) => (
-                  <div key={label} style={{
-                    background: 'var(--bg3)', border: '1px solid var(--l)',
-                    borderRadius: 14, padding: '12px 16px', textAlign: 'center',
-                  }}>
-                    <div style={{ fontSize: 20, fontWeight: 700, color: 'var(--d1)', fontFamily: 'Inter', letterSpacing: '-0.02em' }}>{value}</div>
-                    <div style={{ fontSize: 11, color: 'var(--d3)', fontFamily: 'Inter', marginTop: 2 }}>{label}</div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                  <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--d2)', fontFamily: 'Inter' }}>
+                    Профиль заполнен на {profile.profile_completeness_pct}%
                   </div>
-                ))}
+                </div>
+                <div style={{ background: 'var(--bg)', borderRadius: 4, height: 6, overflow: 'hidden', marginBottom: 10 }}>
+                  <div style={{
+                    height: '100%', borderRadius: 4,
+                    width: `${profile.profile_completeness_pct}%`,
+                    background: profile.profile_completeness_pct >= 70 ? '#22c55e' : profile.profile_completeness_pct >= 40 ? '#f59e0b' : 'var(--d3)',
+                    transition: 'width 0.4s ease',
+                  }} />
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <div style={{ fontSize: 12, color: 'var(--d3)', fontFamily: 'Inter' }}>
+                    Расскажи больше → найдём точное совпадение
+                  </div>
+                  {onGoToChat && (
+                    <button
+                      onClick={onGoToChat}
+                      style={{
+                        background: 'none', border: '1px solid var(--l)',
+                        borderRadius: 8, padding: '5px 10px',
+                        color: 'var(--d2)', fontSize: 12, fontFamily: 'Inter',
+                        fontWeight: 500, cursor: 'pointer', flexShrink: 0,
+                      }}
+                    >
+                      Дополнить
+                    </button>
+                  )}
+                </div>
               </div>
             )}
 

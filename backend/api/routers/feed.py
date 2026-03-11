@@ -84,9 +84,10 @@ async def _build_post_dict(
             "name": author.name or "—",
             "age": author.age,
             "avatar_url": avatar_url,
+            "profile_completeness_pct": author.profile_completeness_pct or 0,
         }
     else:
-        author_data = {"id": None, "name": "Нить Daily", "age": None, "avatar_url": ""}
+        author_data = {"id": None, "name": "Нить Daily", "age": None, "avatar_url": "", "profile_completeness_pct": 0}
 
     return {
         "id": post.id,

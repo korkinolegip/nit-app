@@ -49,7 +49,23 @@ export interface MatchesResponse {
   matches: Match[]
   remaining_today: number
   my_profile_completeness: 'low' | 'medium' | 'full'
+  my_profile_completeness_pct: number
   my_missing_categories: string[]
+}
+
+export interface CheckCompatibilityResult {
+  can_like: boolean
+  partial: boolean
+  missing_patterns: string[]
+  missing_patterns_count: number
+  current_pct: number
+  target_pct: number
+  target_name: string
+  message: string
+}
+
+export async function checkCompatibility(targetUserId: number): Promise<CheckCompatibilityResult> {
+  return apiRequest(`/api/matches/check-compatibility/${targetUserId}`) as Promise<CheckCompatibilityResult>
 }
 
 export async function getMatches(offset = 0): Promise<MatchesResponse> {
@@ -150,6 +166,7 @@ export interface PublicUserProfile {
   is_online: boolean
   last_seen_text: string | null
   created_at: string | null
+  profile_completeness_pct?: number
 }
 
 export async function getUserById(userId: number): Promise<PublicUserProfile> {
@@ -157,11 +174,19 @@ export async function getUserById(userId: number): Promise<PublicUserProfile> {
 }
 
 export interface DirectLikeResponse {
-  mutual_match: boolean
-  match_chat_id: number | null
-  match_id: number
-  my_gender: string | null
-  partner_gender: string | null
+  mutual_match?: boolean
+  match_chat_id?: number | null
+  match_id?: number
+  my_gender?: string | null
+  partner_gender?: string | null
+  // Barrier fields
+  blocked?: boolean
+  can_like?: boolean
+  missing_patterns?: string[]
+  current_pct?: number
+  target_pct?: number
+  target_name?: string
+  message?: string
 }
 
 export async function likeUser(userId: number): Promise<DirectLikeResponse> {

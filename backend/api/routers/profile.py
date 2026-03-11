@@ -68,6 +68,9 @@ async def get_profile(
             "strengths": user.strengths,
         }
 
+    from api.routers.matches import _compute_completeness
+    pct, filled, missing = _compute_completeness(user)
+
     return ProfileResponse(
         user={
             "id": user.id,
@@ -82,6 +85,9 @@ async def get_profile(
             "onboarding_step": user.onboarding_step,
             "is_paused": user.is_paused,
             "created_at": user.created_at.isoformat(),
+            "profile_completeness_pct": pct,
+            "filled_patterns": filled,
+            "missing_patterns": missing,
         },
         photos=photo_list,
         personality=personality,
@@ -111,6 +117,10 @@ async def update_profile(
     if body.occupation is not None and body.occupation != user.occupation:
         user.occupation = body.occupation
         changed_fields.append("occupation")
+    # Recompute completeness pct
+    from api.routers.matches import _compute_completeness
+    pct, _, _ = _compute_completeness(user)
+    user.profile_completeness_pct = pct
     await db.commit()
 
     # Notify match partners + trigger AI dialog on profile change

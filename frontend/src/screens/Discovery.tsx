@@ -5,6 +5,7 @@ import Loader from '../components/Loader'
 interface DiscoveryProps {
   onBack: () => void
   onOpenChat: (matchId: number) => void
+  onGoToChat?: () => void
 }
 
 const FILTERS_KEY = 'people_filters'
@@ -30,7 +31,7 @@ function filtersActive(f: PeopleFilters): boolean {
   )
 }
 
-export default function Discovery({ onBack, onOpenChat }: DiscoveryProps) {
+export default function Discovery({ onBack, onOpenChat, onGoToChat }: DiscoveryProps) {
   const [candidates, setCandidates] = useState<Match[]>([])
   const [reviewedMatches, setReviewedMatches] = useState<Match[]>([])
   const [currentIndex, setCurrentIndex] = useState(0)
@@ -43,6 +44,9 @@ export default function Discovery({ onBack, onOpenChat }: DiscoveryProps) {
   const [restoring, setRestoring] = useState<number | null>(null)
   const [filters, setFilters] = useState<PeopleFilters>(loadFilters)
   const [showFilters, setShowFilters] = useState(false)
+  const [barrierInfo, setBarrierInfo] = useState<{
+    target_name: string; current_pct: number; target_pct: number; missing_patterns: string[]
+  } | null>(null)
   const touchStartX = useRef(0)
   const touchStartY = useRef(0)
 
@@ -80,7 +84,16 @@ export default function Discovery({ onBack, onOpenChat }: DiscoveryProps) {
     if (!current || acting) return
     setActing(true)
     try {
-      const res = await matchAction(current.match_id, action)
+      const res = await matchAction(current.match_id, action) as any
+      if (res.blocked) {
+        setBarrierInfo({
+          target_name: res.target_name || current.user.name,
+          current_pct: res.current_pct || 0,
+          target_pct: res.target_pct || 0,
+          missing_patterns: res.missing_patterns || [],
+        })
+        return
+      }
       const actedMatch = { ...current, user_action: action as 'like' | 'skip' }
       setReviewedMatches(prev => [actedMatch, ...prev])
       advance(action === 'like' ? 'right' : 'left')
@@ -445,6 +458,15 @@ export default function Discovery({ onBack, onOpenChat }: DiscoveryProps) {
           filters={filters}
           onApply={applyFilters}
           onClose={() => setShowFilters(false)}
+        />
+      )}
+
+      {/* Match barrier sheet */}
+      {barrierInfo && (
+        <BarrierSheet
+          info={barrierInfo}
+          onClose={() => setBarrierInfo(null)}
+          onGoToChat={() => { setBarrierInfo(null); onGoToChat?.() }}
         />
       )}
     </div>
@@ -908,6 +930,85 @@ function attachmentLabel(hint: string): string {
   }
   return map[hint] || hint
 }
+
+function BarrierSheet({ info, onClose, onGoToChat }: {
+  info: { target_name: string; current_pct: number; target_pct: number; missing_patterns: string[] }
+  onClose: () => void
+  onGoToChat: () => void
+}) {
+  return (
+    <>
+      <div onClick={onClose} style={{ position: 'fixed', inset: 0, zIndex: 400, background: 'rgba(0,0,0,.55)', backdropFilter: 'blur(2px)' }} />
+      <div style={{
+        position: 'fixed', bottom: 0, left: 0, right: 0, zIndex: 401,
+        background: 'var(--bg2)', borderRadius: '20px 20px 0 0',
+        padding: '20px 20px', paddingBottom: 'max(28px, env(safe-area-inset-bottom, 28px))',
+        animation: 'slideUpSheet 0.28s cubic-bezier(0.34,1.1,0.64,1)',
+      }}>
+        <div style={{ width: 36, height: 4, background: 'var(--l)', borderRadius: 2, margin: '0 auto 20px' }} />
+
+        <div style={{ textAlign: 'center', marginBottom: 20 }}>
+          <div style={{ fontSize: 32, marginBottom: 8 }}>🔒</div>
+          <div style={{ fontSize: 17, fontWeight: 600, color: 'var(--d1)', fontFamily: 'Inter', letterSpacing: '-0.02em' }}>
+            Нить не может посчитать совместимость с {info.target_name}
+          </div>
+        </div>
+
+        {/* Profile comparison */}
+        <div style={{ background: 'var(--bg3)', border: '1px solid var(--l)', borderRadius: 14, padding: '14px 16px', marginBottom: 20 }}>
+          <div style={{ marginBottom: 12 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+              <span style={{ fontSize: 13, color: 'var(--d2)', fontFamily: 'Inter' }}>Твой профиль</span>
+              <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--d1)', fontFamily: 'Inter' }}>{info.current_pct}%</span>
+            </div>
+            <div style={{ background: 'var(--bg)', borderRadius: 3, height: 5, overflow: 'hidden' }}>
+              <div style={{ height: '100%', borderRadius: 3, width: `${info.current_pct}%`, background: 'var(--w)' }} />
+            </div>
+          </div>
+          <div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+              <span style={{ fontSize: 13, color: 'var(--d2)', fontFamily: 'Inter' }}>Профиль {info.target_name}</span>
+              <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--d1)', fontFamily: 'Inter' }}>{info.target_pct}%</span>
+            </div>
+            <div style={{ background: 'var(--bg)', borderRadius: 3, height: 5, overflow: 'hidden' }}>
+              <div style={{ height: '100%', borderRadius: 3, width: `${info.target_pct}%`, background: '#22c55e' }} />
+            </div>
+          </div>
+        </div>
+
+        <div style={{ fontSize: 13, color: 'var(--d3)', fontFamily: 'Inter', textAlign: 'center', lineHeight: 1.6, marginBottom: 20 }}>
+          Расскажи больше о себе — Нить найдёт точки совпадения
+        </div>
+
+        <div style={{ display: 'flex', gap: 10 }}>
+          <button
+            onClick={onClose}
+            style={{
+              flex: 1, padding: '14px', background: 'none',
+              border: '1px solid var(--l)', borderRadius: 13,
+              color: 'var(--d2)', fontSize: 14, fontWeight: 500,
+              cursor: 'pointer', fontFamily: 'Inter',
+            }}
+          >
+            Пропустить
+          </button>
+          <button
+            onClick={onGoToChat}
+            style={{
+              flex: 2, padding: '14px', background: 'var(--w)',
+              border: 'none', borderRadius: 13,
+              color: 'var(--bg)', fontSize: 14, fontWeight: 600,
+              cursor: 'pointer', fontFamily: 'Inter',
+            }}
+          >
+            Дополнить профиль →
+          </button>
+        </div>
+      </div>
+    </>
+  )
+}
+
 
 function EmptyState({ onBack, exhausted, hasReviewed, filtersActive, onResetFilters }: {
   onBack: () => void

@@ -608,6 +608,10 @@ async def send_message(
                 setattr(user, field, collected[field])
         if collected.get("partner_gender"):
             user.partner_preference = collected["partner_gender"]
+        # Update completeness pct with basic fields now filled
+        from api.routers.matches import _compute_completeness
+        pct, _, _ = _compute_completeness(user, collected)
+        user.profile_completeness_pct = pct
         await db.commit()
 
         # Generate personality profile in background
@@ -722,6 +726,10 @@ async def _generate_personality_background(user_id: int, collected: dict):
                 user.ideal_partner_traits = {"items": profile["ideal_partner_traits"]}
             user.attachment_hint = profile.get("attachment_hint")
             user.primary_dimension = profile.get("primary_dimension")
+            # Recompute profile completeness pct after personality is generated
+            from api.routers.matches import _compute_completeness
+            pct, _, _ = _compute_completeness(user)
+            user.profile_completeness_pct = pct
             await db.commit()
             logger.info(f"Personality generated for user {user_id}: {user.personality_type}")
     except Exception as e:

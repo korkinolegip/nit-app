@@ -58,6 +58,8 @@ class User(Base):
 
     prompt_version_id: Mapped[int | None] = mapped_column()
 
+    profile_completeness_pct: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+
     last_seen: Mapped[datetime | None] = mapped_column(TIMESTAMPTZ)
     views_seen_at: Mapped[datetime | None] = mapped_column(TIMESTAMPTZ)
     last_profile_dialog_at: Mapped[datetime | None] = mapped_column(TIMESTAMPTZ)

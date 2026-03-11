@@ -104,7 +104,7 @@ export default function ProfileViews({ onBack, onOpenMatch }: ProfileViewsProps)
         setViewingProfile(null)
         setViewingItem(null)
         setMatchOverlay({
-          text: matchText(res.my_gender, res.partner_gender),
+          text: matchText(res.my_gender ?? null, res.partner_gender ?? null),
           matchChatId: res.match_chat_id,
         })
       } else {

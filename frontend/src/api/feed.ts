@@ -5,6 +5,7 @@ export interface PostAuthor {
   name: string
   age: number | null
   avatar_url: string
+  profile_completeness_pct?: number
 }
 
 export interface FeedPost {

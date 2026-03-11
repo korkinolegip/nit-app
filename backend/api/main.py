@@ -120,6 +120,24 @@ async def lifespan(app: FastAPI):
         await conn.execute(_sa.text("CREATE INDEX IF NOT EXISTS idx_post_comments_post_id ON post_comments (post_id)"))
         await conn.execute(_sa.text("CREATE INDEX IF NOT EXISTS idx_post_saves_user_id ON post_saves (user_id)"))
 
+        # ── Completeness & saved profiles ──────────────────────────────────────
+        await conn.execute(_sa.text(
+            "ALTER TABLE users ADD COLUMN IF NOT EXISTS profile_completeness_pct INTEGER NOT NULL DEFAULT 0"
+        ))
+        await conn.execute(_sa.text("""
+            CREATE TABLE IF NOT EXISTS saved_profiles (
+                id SERIAL PRIMARY KEY,
+                user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                target_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                saved_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+                notified BOOLEAN NOT NULL DEFAULT FALSE,
+                UNIQUE(user_id, target_id)
+            )
+        """))
+        await conn.execute(_sa.text(
+            "CREATE INDEX IF NOT EXISTS idx_saved_profiles_user_id ON saved_profiles (user_id)"
+        ))
+
     # Set up Telegram bot webhook inside FastAPI
     if settings.BOT_TOKEN:
         try:
