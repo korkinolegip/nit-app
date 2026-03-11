@@ -44,6 +44,12 @@ def require_owner(user: User = Depends(get_current_user)) -> User:
     return user
 
 
+def require_admin(user: User = Depends(get_current_user)) -> User:
+    if not getattr(user, "is_admin", False):
+        raise HTTPException(403, "Admin access required")
+    return user
+
+
 class ResolveRequest(BaseModel):
     action: str  # ban | warn | dismiss
     note: str = ""
@@ -393,14 +399,6 @@ async def admin_patch_user(
     await db.commit()
     await db.refresh(u)
     return {"ok": True}
-
-
-# ── require_admin dependency (DB flag) ───────────────────────────────────────
-
-def require_admin(user: User = Depends(get_current_user)) -> User:
-    if not getattr(user, "is_admin", False):
-        raise HTTPException(403, "Admin access required")
-    return user
 
 
 # ── Pydantic bodies ───────────────────────────────────────────────────────────
