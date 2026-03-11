@@ -1330,7 +1330,7 @@ export default function Admin({ onBack }: AdminProps) {
       </div>
 
       {/* Tab content */}
-      <div style={{ flex: 1, overflowY: 'auto' }}>
+      <div style={{ flex: 1, overflowY: 'auto', paddingBottom: 'calc(68px + env(safe-area-inset-bottom, 0px))' }}>
         {activeTab === 'dashboard' && <Dashboard onNavigate={setActiveTab} />}
         {activeTab === 'drafts' && <Drafts />}
         {activeTab === 'users' && <Users />}

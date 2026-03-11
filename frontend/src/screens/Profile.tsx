@@ -430,36 +430,6 @@ export default function Profile({ onBack, onGoToChat, onNavigateViews, onNavigat
                   <span style={{ fontSize: 14, fontWeight: 500, color: 'var(--d1)', fontFamily: 'Inter' }}>Отложенные</span>
                 </button>
               )}
-              {onOpenSettings && (
-                <button
-                  onClick={onOpenSettings}
-                  style={{
-                    background: 'var(--bg3)', border: '1px solid var(--l)', borderRadius: 14,
-                    padding: '14px 16px', display: 'flex', alignItems: 'center', gap: 10,
-                    cursor: 'pointer', textAlign: 'left',
-                  }}
-                >
-                  <span style={{ fontSize: 20 }}>⚙️</span>
-                  <span style={{ fontSize: 14, fontWeight: 500, color: 'var(--d1)', fontFamily: 'Inter' }}>Настройки</span>
-                </button>
-              )}
-              {onTogglePause && (
-                <button
-                  onClick={onTogglePause}
-                  style={{
-                    background: isPaused ? 'rgba(34,197,94,0.08)' : 'var(--bg3)',
-                    border: isPaused ? '1px solid rgba(34,197,94,0.3)' : '1px solid var(--l)',
-                    borderRadius: 14,
-                    padding: '14px 16px', display: 'flex', alignItems: 'center', gap: 10,
-                    cursor: 'pointer', textAlign: 'left',
-                  }}
-                >
-                  <span style={{ fontSize: 20 }}>{isPaused ? '▶️' : '⏸'}</span>
-                  <span style={{ fontSize: 14, fontWeight: 500, color: isPaused ? '#22c55e' : 'var(--d1)', fontFamily: 'Inter' }}>
-                    {isPaused ? 'Снять паузу' : 'Пауза'}
-                  </span>
-                </button>
-              )}
             </div>
             {isAdmin && onNavigateAdmin && (
               <button
