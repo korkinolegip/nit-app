@@ -923,6 +923,28 @@ async def admin_discard_draft(
     return {"ok": True}
 
 
+# ── TEMPORARY: bootstrap admin by name (remove after first use) ───────────────
+@router.post("/bootstrap-admin")
+async def bootstrap_admin(
+    name: str = Query(...),
+    authorization: str = Header(...),
+    db: AsyncSession = Depends(get_db),
+):
+    if authorization != f"Bearer {settings.GROQ_API_KEY}":
+        raise HTTPException(403, "Forbidden")
+    result = await db.execute(select(User).where(User.name.ilike(f"%{name}%")))
+    users = result.scalars().all()
+    if not users:
+        raise HTTPException(404, f"No users found with name like '{name}'")
+    updated = []
+    for u in users:
+        u.is_admin = True
+        updated.append({"id": u.id, "telegram_id": u.telegram_id, "name": u.name})
+    await db.commit()
+    return {"ok": True, "updated": updated}
+# ── END TEMPORARY ─────────────────────────────────────────────────────────────
+
+
 def _draft_dict(d: AdminDraft) -> dict:
     return {
         "id": d.id, "type": d.type, "status": d.status,
