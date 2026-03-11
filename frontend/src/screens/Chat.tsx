@@ -24,15 +24,17 @@ interface CardItem {
 
 interface ChatProps {
   onOpenMatch: (matchId: number) => void
-  onNavigateTo: (screen: 'discovery' | 'matches' | 'chats' | 'views' | 'profile' | 'feed') => void
+  onNavigateTo: (screen: 'discovery' | 'matches' | 'chats' | 'views' | 'profile' | 'feed' | 'admin') => void
   isReturning?: boolean
   sessionComplete?: boolean
   hasPhotos?: boolean
   badges?: { matches?: number; chats?: number; views?: number }
+  isAdmin?: boolean
 }
 
-export default function Chat({ onOpenMatch, onNavigateTo, isReturning = false, sessionComplete = false, hasPhotos = false, badges = {} }: ChatProps) {
-  const { messages, isTyping, quickReplies, send, addMessage, scrollRef, setQuickReplies } = useChat({ onNavigate: onNavigateTo })
+export default function Chat({ onOpenMatch, onNavigateTo, isReturning = false, sessionComplete = false, hasPhotos = false, badges = {}, isAdmin = false }: ChatProps) {
+  const [pendingTarget, setPendingTarget] = useState<{ id: number; name: string } | null>(null)
+  const { messages, isTyping, quickReplies, send, addMessage, scrollRef, setQuickReplies, actionButton, setActionButton } = useChat({ onNavigate: onNavigateTo, targetUserId: pendingTarget?.id ?? null })
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [isMenuOpen, setIsMenuOpen] = useState(false)
   const [isNavOpen, setIsNavOpen] = useState(false)
@@ -277,6 +279,26 @@ export default function Chat({ onOpenMatch, onNavigateTo, isReturning = false, s
         </div>
       </div>
 
+      {/* Pending match target banner */}
+      {pendingTarget && (
+        <div style={{
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+          padding: '8px 16px', background: 'var(--bg3)',
+          borderBottom: '1px solid var(--l)', flexShrink: 0,
+        }}>
+          <span style={{ fontSize: '13px', color: 'var(--d2)' }}>
+            Заполняешь профиль для матча с <b style={{ color: 'var(--w)' }}>{pendingTarget.name}</b>
+          </span>
+          <button
+            onClick={() => setPendingTarget(null)}
+            style={{
+              background: 'none', border: 'none', color: 'var(--d3)',
+              fontSize: '16px', cursor: 'pointer', padding: '2px 6px', lineHeight: 1,
+            }}
+          >×</button>
+        </div>
+      )}
+
       {/* Messages */}
       <div ref={scrollRef} style={{
         flex: 1, overflowY: 'auto', padding: '20px 14px 8px',
@@ -333,6 +355,30 @@ export default function Chat({ onOpenMatch, onNavigateTo, isReturning = false, s
 
       <QuickReplies replies={quickReplies} onSelect={(text) => send(text)} />
 
+      {/* Action button from pending match target */}
+      {actionButton && (
+        <div style={{
+          padding: '10px 16px', borderTop: '1px solid var(--l)',
+          background: 'var(--bg2)', flexShrink: 0,
+        }}>
+          <button
+            onClick={() => {
+              setActionButton(null)
+              setPendingTarget(null)
+              onNavigateTo('discovery')
+            }}
+            style={{
+              width: '100%', padding: '13px', borderRadius: '14px',
+              background: 'var(--accent, #7B5EFF)', border: 'none',
+              color: '#fff', fontSize: '14px', fontWeight: 600,
+              fontFamily: 'Inter', cursor: 'pointer',
+            }}
+          >
+            {actionButton.label}
+          </button>
+        </div>
+      )}
+
       <input
         ref={fileInputRef}
         type="file"
@@ -353,6 +399,7 @@ export default function Chat({ onOpenMatch, onNavigateTo, isReturning = false, s
           onNavigate={(screen) => { onNavigateTo(screen as any); setIsNavOpen(false) }}
           onClose={() => setIsNavOpen(false)}
           badges={badges}
+          isAdmin={isAdmin}
         />
       )}
 

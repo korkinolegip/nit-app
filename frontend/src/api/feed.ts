@@ -24,6 +24,7 @@ export interface FeedPost {
   is_reposted: boolean
   is_bot_post: boolean
   has_test: boolean
+  test_completed: boolean
   is_mine: boolean
   author: PostAuthor
 }
@@ -102,4 +103,33 @@ export async function getSavedPosts(): Promise<FeedPost[]> {
 
 export async function getUserFeedStats(userId: number): Promise<{ posts_count: number; total_likes: number }> {
   return apiRequest(`/api/feed/user/${userId}/stats`) as Promise<{ posts_count: number; total_likes: number }>
+}
+
+export interface PostTestQuestion {
+  id: string
+  text: string
+  options: { key: string; text: string; result: string }[]
+}
+
+export interface PostTestData {
+  test_id: number
+  title: string
+  questions: PostTestQuestion[]
+}
+
+export async function getPostTest(postId: number): Promise<PostTestData> {
+  return apiRequest(`/api/posts/${postId}/test`) as Promise<PostTestData>
+}
+
+export async function submitPostTest(postId: number, answers: Record<string, string>): Promise<{
+  result_key: string
+  result_description: string
+  patterns_updated: boolean
+  old_completeness_pct: number
+  new_completeness_pct: number
+}> {
+  return apiRequest(`/api/posts/${postId}/test/submit`, {
+    method: 'POST',
+    body: JSON.stringify({ answers }),
+  }) as Promise<any>
 }

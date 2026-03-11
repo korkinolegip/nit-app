@@ -140,6 +140,7 @@ class ChatMessageRequest(BaseModel):
     type: str = "text"
     question_id: int | None = None
     answer_key: str | None = None
+    target_user_id: int | None = None  # pending match target
 
 
 class ChatMessageResponse(BaseModel):
@@ -151,6 +152,7 @@ class ChatMessageResponse(BaseModel):
     quick_replies: list[str] | None = None
     card_data: dict | None = None
     menu_buttons: list[dict] | None = None
+    action_button: dict | None = None
 
 
 class ChatStatusResponse(BaseModel):
@@ -481,6 +483,28 @@ async def send_message(
     if session is None:
         session = await create_interview_session(db, user.id)
 
+    # Handle pending_match_target — update in collected_data
+    if body.target_user_id is not None and session.is_complete:
+        from sqlalchemy.orm.attributes import flag_modified as _flag_modified
+        collected = dict(session.collected_data or {})
+        if body.target_user_id == 0:
+            # Clear pending target
+            collected.pop("pending_match_target", None)
+        else:
+            target_user = await db.get(User, body.target_user_id)
+            if target_user:
+                from api.routers.matches import _check_match_barrier
+                barrier = _check_match_barrier(user, target_user)
+                collected["pending_match_target"] = {
+                    "user_id": body.target_user_id,
+                    "name": target_user.name or "",
+                    "missing_patterns": barrier.get("missing_patterns", []),
+                    "can_like": barrier.get("can_like", False),
+                }
+        session.collected_data = collected
+        _flag_modified(session, "collected_data")
+        await db.commit()
+
     if session.is_complete:
         if text.lower().strip() in _CONFIRM_PHRASES:
             user.onboarding_step = "photos"
@@ -582,6 +606,7 @@ async def send_message(
         return ChatMessageResponse(
             reply=result.get("message", ""), reply_type=reply_type,
             card_data=card_data, menu_buttons=menu_buttons,
+            action_button=result.get("action_button"),
         )
 
     photos_for_interview = await get_user_photos(db, user.id)

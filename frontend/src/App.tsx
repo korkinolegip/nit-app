@@ -9,12 +9,14 @@ import Matches from './screens/Matches'
 import ProfileViews from './screens/ProfileViews'
 import Feed from './screens/Feed'
 import SavedProfiles from './screens/SavedProfiles'
+import Admin from './screens/Admin'
 import { initAuth } from './api/client'
 import { getChatStatus } from './api/chat'
 import { getMatches } from './api/matches'
 import { getViewsCount } from './api/views'
+import { getProfile } from './api/profile'
 
-type Screen = 'welcome' | 'chat' | 'matchChat' | 'discovery' | 'matches' | 'chats' | 'views' | 'profile' | 'feed' | 'saved'
+type Screen = 'welcome' | 'chat' | 'matchChat' | 'discovery' | 'matches' | 'chats' | 'views' | 'profile' | 'feed' | 'saved' | 'admin'
 
 interface Badges {
   matches: number
@@ -29,6 +31,7 @@ export default function App() {
   const [sessionComplete, setSessionComplete] = useState(false)
   const [hasPhotos, setHasPhotos] = useState(false)
   const [badges, setBadges] = useState<Badges>({ matches: 0, chats: 0, views: 0 })
+  const [isAdmin, setIsAdmin] = useState(false)
 
   useEffect(() => {
     const tg = (window as any).Telegram?.WebApp
@@ -40,8 +43,9 @@ export default function App() {
     fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/health`).catch(() => {})
 
     initAuth()
-      .then(() => getChatStatus())
-      .then((status) => {
+      .then(() => Promise.all([getChatStatus(), getProfile().catch(() => null)]))
+      .then(([status, profile]) => {
+        if ((profile as any)?.user?.is_admin) setIsAdmin(true)
         if (status.has_session) {
           setIsReturning(true)
           setSessionComplete(status.profile_ready)
@@ -107,6 +111,7 @@ export default function App() {
           sessionComplete={sessionComplete}
           hasPhotos={hasPhotos}
           badges={badges}
+          isAdmin={isAdmin}
         />
       </div>
 
@@ -120,6 +125,7 @@ export default function App() {
       {screen === 'views' && <ProfileViews onBack={backToChat} onOpenMatch={openMatchChat} />}
       {screen === 'feed' && <Feed onBack={backToChat} />}
       {screen === 'saved' && <SavedProfiles onBack={backToChat} onGoToChat={openChat} onOpenChat={openMatchChat} />}
+      {screen === 'admin' && <Admin onBack={backToChat} />}
     </>
   )
 }

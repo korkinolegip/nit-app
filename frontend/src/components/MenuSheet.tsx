@@ -1,11 +1,12 @@
 interface MenuSheetProps {
-  onNavigate: (screen: 'feed' | 'discovery' | 'matches' | 'chats' | 'views' | 'profile' | 'saved') => void
+  onNavigate: (screen: 'feed' | 'discovery' | 'matches' | 'chats' | 'views' | 'profile' | 'saved' | 'admin') => void
   onClose: () => void
   badges?: {
     matches?: number
     chats?: number
     views?: number
   }
+  isAdmin?: boolean
 }
 
 const menuItems = [
@@ -81,7 +82,18 @@ const menuItems = [
   },
 ]
 
-export default function MenuSheet({ onNavigate, onClose, badges = {} }: MenuSheetProps) {
+const adminItem = {
+  id: 'admin' as const,
+  label: 'Админ',
+  icon: (
+    <svg width="26" height="26" viewBox="0 0 24 24" fill="none">
+      <path d="M12 2L4 6v6c0 5.25 3.5 10.15 8 11 4.5-.85 8-5.75 8-11V6l-8-4z" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round"/>
+    </svg>
+  ),
+}
+
+export default function MenuSheet({ onNavigate, onClose, badges = {}, isAdmin = false }: MenuSheetProps) {
+  const visibleItems = isAdmin ? [...menuItems, adminItem] : menuItems
   return (
     <div
       style={{
@@ -116,11 +128,11 @@ export default function MenuSheet({ onNavigate, onClose, badges = {} }: MenuShee
           margin: '12px auto 24px',
         }} />
 
-        {/* Items — 3 + 2 + 2 grid */}
+        {/* Items grid */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
           {/* Row 1: Лента, Люди, Матчи */}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12 }}>
-            {menuItems.slice(0, 3).map(item => (
+            {visibleItems.slice(0, 3).map(item => (
               <MenuButton
                 key={item.id}
                 item={item}
@@ -132,7 +144,7 @@ export default function MenuSheet({ onNavigate, onClose, badges = {} }: MenuShee
           </div>
           {/* Row 2: Чаты, Просмотры */}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 12 }}>
-            {menuItems.slice(3, 5).map(item => (
+            {visibleItems.slice(3, 5).map(item => (
               <MenuButton
                 key={item.id}
                 item={item}
@@ -142,9 +154,9 @@ export default function MenuSheet({ onNavigate, onClose, badges = {} }: MenuShee
               />
             ))}
           </div>
-          {/* Row 3: Профиль, Отложенные */}
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 12 }}>
-            {menuItems.slice(5).map(item => (
+          {/* Row 3: Профиль, Отложенные [, Админ] */}
+          <div style={{ display: 'grid', gridTemplateColumns: `repeat(${visibleItems.slice(5).length}, 1fr)`, gap: 12 }}>
+            {visibleItems.slice(5).map(item => (
               <MenuButton
                 key={item.id}
                 item={item}

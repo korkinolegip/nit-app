@@ -1,6 +1,12 @@
 import { useState, useRef, useCallback } from 'react'
 import { sendMessage, ChatResponse } from '../api/chat'
 
+export interface ActionButton {
+  label: string
+  action: string
+  target_id: number
+}
+
 export interface Message {
   id: number
   sender: 'ai' | 'me'
@@ -26,10 +32,11 @@ const NAV_LABELS: Record<NavScreen, string> = {
   profile: 'Профиль',
 }
 
-export function useChat(opts?: { onNavigate?: (screen: NavScreen) => void }) {
+export function useChat(opts?: { onNavigate?: (screen: NavScreen) => void; targetUserId?: number | null }) {
   const [messages, setMessages] = useState<Message[]>([])
   const [isTyping, setIsTyping] = useState(false)
   const [quickReplies, setQuickReplies] = useState<string[]>([])
+  const [actionButton, setActionButton] = useState<ActionButton | null>(null)
   const nextIdRef = useRef(1)
   const scrollRef = useRef<HTMLDivElement | null>(null)
 
@@ -93,7 +100,11 @@ export function useChat(opts?: { onNavigate?: (screen: NavScreen) => void }) {
     setIsTyping(true)
 
     try {
-      const res: ChatResponse = await sendMessage(text)
+      const res: ChatResponse = await sendMessage(text, 'text', opts?.targetUserId ?? undefined)
+
+      if (res.action_button) {
+        setActionButton(res.action_button)
+      }
 
       setIsTyping(false)
 
@@ -144,5 +155,7 @@ export function useChat(opts?: { onNavigate?: (screen: NavScreen) => void }) {
     addMessage,
     scrollRef,
     setQuickReplies,
+    actionButton,
+    setActionButton,
   }
 }

@@ -51,6 +51,9 @@ class User(Base):
     is_active: Mapped[bool] = mapped_column(Boolean, default=False)
     is_paused: Mapped[bool] = mapped_column(Boolean, default=False)
     is_banned: Mapped[bool] = mapped_column(Boolean, default=False)
+    is_blocked: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
+    is_admin: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
+    is_bot_editor: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
     onboarding_step: Mapped[str] = mapped_column(String(50), default="start")
 
     risk_score: Mapped[int] = mapped_column(SmallInteger, default=0)
@@ -465,4 +468,51 @@ class PostView(Base):
     __table_args__ = (
         UniqueConstraint("post_id", "user_id"),
         Index("idx_post_views_post_id", "post_id"),
+    )
+
+
+class AdminDraft(Base):
+    __tablename__ = "admin_drafts"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    type: Mapped[str] = mapped_column(String(20), default="update")
+    raw_text: Mapped[str | None] = mapped_column(Text)
+    generated_text: Mapped[str | None] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(String(20), default="pending")
+    github_commits: Mapped[dict | None] = mapped_column(JSONB)
+    post_id: Mapped[int | None] = mapped_column(
+        ForeignKey("posts.id", ondelete="SET NULL"), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(TIMESTAMPTZ, server_default=func.now())
+    published_at: Mapped[datetime | None] = mapped_column(TIMESTAMPTZ)
+
+    __table_args__ = (
+        Index("idx_admin_drafts_status", "status", "created_at"),
+    )
+
+
+class PostTest(Base):
+    __tablename__ = "post_tests"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    post_id: Mapped[int] = mapped_column(ForeignKey("posts.id", ondelete="CASCADE"), unique=True)
+    title: Mapped[str] = mapped_column(Text, nullable=False)
+    questions: Mapped[dict] = mapped_column(JSONB, default=list)
+    result_mapping: Mapped[dict] = mapped_column(JSONB, default=dict)
+    created_at: Mapped[datetime] = mapped_column(TIMESTAMPTZ, server_default=func.now())
+
+
+class PostTestResult(Base):
+    __tablename__ = "post_test_results"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    test_id: Mapped[int] = mapped_column(ForeignKey("post_tests.id", ondelete="CASCADE"))
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
+    answers: Mapped[dict] = mapped_column(JSONB, default=dict)
+    result_key: Mapped[str | None] = mapped_column(Text)
+    completed_at: Mapped[datetime] = mapped_column(TIMESTAMPTZ, server_default=func.now())
+
+    __table_args__ = (
+        UniqueConstraint("test_id", "user_id"),
+        Index("idx_post_test_results_user_id", "user_id"),
     )

@@ -1,9 +1,10 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import {
-  FeedPost, FeedComment,
+  FeedPost, FeedComment, PostTestData, PostTestQuestion,
   getFeed, createPost, deletePost, uploadPostMedia,
   toggleLike, toggleRepost, toggleSave,
   getComments, addComment, deleteComment,
+  getPostTest, submitPostTest,
 } from '../api/feed'
 
 // ─── Time helper ──────────────────────────────────────────────────────────────
@@ -47,6 +48,129 @@ function PostSkeleton() {
   )
 }
 
+// ─── TestSheet ────────────────────────────────────────────────────────────────
+
+function TestSheet({ postId, onClose, onComplete }: { postId: number; onClose: () => void; onComplete: () => void }) {
+  const [testData, setTestData] = useState<PostTestData | null>(null)
+  const [step, setStep] = useState(0)
+  const [answers, setAnswers] = useState<Record<string, string>>({})
+  const [result, setResult] = useState<{ key: string; description: string; pct_before: number; pct_after: number } | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [submitting, setSubmitting] = useState(false)
+
+  useEffect(() => {
+    getPostTest(postId)
+      .then(data => { setTestData(data); setLoading(false) })
+      .catch(() => setLoading(false))
+  }, [postId])
+
+  const selectOption = (questionId: string, optionKey: string) => {
+    const newAnswers = { ...answers, [questionId]: optionKey }
+    setAnswers(newAnswers)
+
+    if (!testData) return
+    const questions = testData.questions as PostTestQuestion[]
+    if (step < questions.length - 1) {
+      setTimeout(() => setStep(s => s + 1), 300)
+    } else {
+      // All answered — submit
+      setSubmitting(true)
+      submitPostTest(postId, newAnswers)
+        .then(res => {
+          setResult({ key: res.result_key, description: res.result_description, pct_before: res.old_completeness_pct, pct_after: res.new_completeness_pct })
+          setSubmitting(false)
+          onComplete()
+        })
+        .catch(() => setSubmitting(false))
+    }
+  }
+
+  return (
+    <div style={{
+      position: 'fixed', inset: 0, zIndex: 200,
+      display: 'flex', flexDirection: 'column', justifyContent: 'flex-end',
+    }}>
+      <div onClick={onClose} style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.55)', backdropFilter: 'blur(2px)' }} />
+      <div style={{
+        position: 'relative', background: 'var(--bg2)',
+        borderRadius: '20px 20px 0 0', padding: '0 20px 40px',
+        border: '1px solid var(--l)', borderBottom: 'none',
+        animation: 'slideUp 0.28s cubic-bezier(0.34,1.2,0.64,1)',
+        maxHeight: '85dvh', overflowY: 'auto',
+      }}>
+        <div style={{ width: 36, height: 4, borderRadius: 2, background: 'var(--d4)', margin: '12px auto 20px' }} />
+
+        {loading && <div style={{ textAlign: 'center', padding: '20px 0', color: 'var(--d3)' }}>Загрузка теста...</div>}
+
+        {!loading && !testData && (
+          <div style={{ textAlign: 'center', padding: '20px 0', color: 'var(--d3)' }}>Тест недоступен</div>
+        )}
+
+        {testData && !result && !submitting && (() => {
+          const questions = testData.questions as PostTestQuestion[]
+          const q = questions[step]
+          return (
+            <>
+              <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--w)', marginBottom: 6 }}>{testData.title}</div>
+              <div style={{ fontSize: 12, color: 'var(--d3)', marginBottom: 20 }}>
+                Вопрос {step + 1} из {questions.length}
+              </div>
+              <div style={{ fontSize: 15, color: 'var(--d1)', lineHeight: 1.5, marginBottom: 20 }}>{q.text}</div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                {q.options.map(opt => (
+                  <button
+                    key={opt.key}
+                    onClick={() => selectOption(q.id, opt.key)}
+                    style={{
+                      padding: '13px 16px', borderRadius: 14,
+                      border: answers[q.id] === opt.key ? '1px solid rgba(123,94,255,0.6)' : '1px solid var(--l)',
+                      background: answers[q.id] === opt.key ? 'rgba(123,94,255,0.15)' : 'var(--bg3)',
+                      color: 'var(--d1)', fontSize: 14, fontFamily: 'Inter',
+                      textAlign: 'left', cursor: 'pointer',
+                    }}
+                  >
+                    {opt.text}
+                  </button>
+                ))}
+              </div>
+            </>
+          )
+        })()}
+
+        {submitting && (
+          <div style={{ textAlign: 'center', padding: '20px 0', color: 'var(--d3)' }}>Обрабатываю результат...</div>
+        )}
+
+        {result && (
+          <>
+            <div style={{ fontSize: 16, fontWeight: 700, color: 'var(--w)', marginBottom: 10 }}>Результат</div>
+            <div style={{ fontSize: 14, color: 'var(--d1)', lineHeight: 1.6, marginBottom: 16 }}>{result.description}</div>
+            {result.pct_after > result.pct_before && (
+              <div style={{
+                background: 'rgba(123,94,255,0.15)', border: '1px solid rgba(123,94,255,0.3)',
+                borderRadius: 12, padding: '10px 14px', marginBottom: 16,
+                fontSize: 13, color: 'rgba(180,150,255,0.9)',
+              }}>
+                Полнота профиля: {result.pct_before}% → {result.pct_after}%
+              </div>
+            )}
+            <button
+              onClick={onClose}
+              style={{
+                width: '100%', padding: '13px', borderRadius: 14,
+                background: '#7B5EFF', border: 'none',
+                color: '#fff', fontSize: 14, fontWeight: 600, fontFamily: 'Inter', cursor: 'pointer',
+              }}
+            >
+              Закрыть
+            </button>
+          </>
+        )}
+      </div>
+    </div>
+  )
+}
+
 // ─── PostCard ─────────────────────────────────────────────────────────────────
 
 interface PostCardProps {
@@ -56,9 +180,10 @@ interface PostCardProps {
   onSave: (id: number) => void
   onComment: (id: number) => void
   onDelete: (id: number) => void
+  onTakeTest: (id: number) => void
 }
 
-function PostCard({ post, onLike, onRepost, onSave, onComment, onDelete }: PostCardProps) {
+function PostCard({ post, onLike, onRepost, onSave, onComment, onDelete, onTakeTest }: PostCardProps) {
   const [expanded, setExpanded] = useState(false)
   const [menuOpen, setMenuOpen] = useState(false)
   const needsTruncate = (post.text?.length ?? 0) > 200
@@ -204,6 +329,32 @@ function PostCard({ post, onLike, onRepost, onSave, onComment, onDelete }: PostC
               #{tag}
             </span>
           ))}
+        </div>
+      )}
+
+      {/* Test button */}
+      {post.has_test && (
+        <div style={{ padding: '12px 14px 0' }}>
+          {post.test_completed ? (
+            <div style={{
+              fontSize: 13, color: 'rgba(130,200,130,.8)', fontFamily: 'Inter',
+              display: 'flex', alignItems: 'center', gap: 6,
+            }}>
+              <span>✓</span> Тест пройден
+            </div>
+          ) : (
+            <button
+              onClick={() => onTakeTest(post.id)}
+              style={{
+                background: 'rgba(123,94,255,0.12)', border: '1px solid rgba(123,94,255,0.3)',
+                borderRadius: 10, padding: '9px 16px',
+                color: 'rgba(180,150,255,0.9)', fontSize: 13, fontWeight: 600,
+                fontFamily: 'Inter', cursor: 'pointer',
+              }}
+            >
+              Пройти тест →
+            </button>
+          )}
         </div>
       )}
 
@@ -622,6 +773,7 @@ export default function Feed({ onBack }: FeedProps) {
   const [offset, setOffset] = useState(0)
   const [showCreate, setShowCreate] = useState(false)
   const [commentPostId, setCommentPostId] = useState<number | null>(null)
+  const [testPostId, setTestPostId] = useState<number | null>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
   const PAGE = 20
 
@@ -794,6 +946,7 @@ export default function Feed({ onBack }: FeedProps) {
                 onSave={handleSave}
                 onComment={id => setCommentPostId(id)}
                 onDelete={handleDelete}
+                onTakeTest={id => setTestPostId(id)}
               />
             ))}
             {isLoadingMore && (
@@ -825,6 +978,16 @@ export default function Feed({ onBack }: FeedProps) {
           postId={commentPostId}
           onClose={() => setCommentPostId(null)}
           onCountUpdate={handleCommentCountUpdate}
+        />
+      )}
+      {testPostId !== null && (
+        <TestSheet
+          postId={testPostId}
+          onClose={() => setTestPostId(null)}
+          onComplete={() => {
+            // Mark test as completed in local state
+            setPosts(prev => prev.map(p => p.id === testPostId ? { ...p, test_completed: true } : p))
+          }}
         />
       )}
 

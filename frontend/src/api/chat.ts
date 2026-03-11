@@ -9,6 +9,7 @@ export interface ChatResponse {
   quick_replies: string[] | null
   card_data: Record<string, any> | null
   menu_buttons?: GreetingMenuButton[] | null
+  action_button?: { label: string; action: string; target_id: number } | null
 }
 
 export interface ChatStatus {
@@ -19,10 +20,10 @@ export interface ChatStatus {
   has_photos: boolean
 }
 
-export async function sendMessage(text: string, type = 'text'): Promise<ChatResponse> {
+export async function sendMessage(text: string, type = 'text', targetUserId?: number): Promise<ChatResponse> {
   return apiRequest('/api/chat/message', {
     method: 'POST',
-    body: JSON.stringify({ text, type }),
+    body: JSON.stringify({ text, type, target_user_id: targetUserId ?? null }),
   })
 }
 

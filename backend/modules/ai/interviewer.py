@@ -338,6 +338,25 @@ async def process_post_onboarding_turn(
     user_context = "\n".join(ctx_parts)
     system = _COMPANION_SYSTEM_PROMPT + "\n\nКОНТЕКСТ:\n" + user_context
 
+    # ── pending_match_target context injection ───────────────────────────────
+    pending = (session.collected_data or {}).get("pending_match_target")
+    if pending:
+        pmt_name = pending.get("name", "")
+        pmt_missing = pending.get("missing_patterns", [])
+        if pmt_missing:
+            missing_str = ", ".join(pmt_missing)
+            system += (
+                f"\n\nКОНТЕКСТ МАТЧА: Пользователь хочет отправить матч {pmt_name}. "
+                f"Для расчёта совместимости не хватает следующих паттернов: {missing_str}. "
+                "Задавай вопросы ТОЛЬКО по этим паттернам — не отвлекайся на другие темы."
+            )
+        else:
+            system += (
+                f"\n\nКОНТЕКСТ МАТЧА: Пользователь хочет отправить матч {pmt_name}. "
+                "Совместимость полностью рассчитана. "
+                f"Скажи пользователю: «Теперь я знаю о тебе достаточно — можешь отправить матч {pmt_name}!»"
+            )
+
     # Use last 30 messages from history
     history = list(session.messages) if session.messages else []
     recent = history[-30:] if len(history) > 30 else history
@@ -380,6 +399,36 @@ async def process_post_onboarding_turn(
         {"role": "assistant", "content": result["message"]},
     ]
     session.messages = new_history
+
+    # ── Update pending_match_target after each turn ──────────────────────────
+    pending_after = (session.collected_data or {}).get("pending_match_target")
+    if pending_after:
+        target_id = pending_after.get("user_id")
+        if target_id:
+            try:
+                from api.routers.matches import _check_match_barrier
+                from sqlalchemy.orm.attributes import flag_modified as _flag_modified
+                target_user = await db.get(User, target_id)
+                if target_user:
+                    barrier = _check_match_barrier(user, target_user)
+                    collected = dict(session.collected_data)
+                    collected["pending_match_target"] = {
+                        "user_id": target_id,
+                        "name": target_user.name or "",
+                        "missing_patterns": barrier["missing_patterns"],
+                        "can_like": barrier["can_like"],
+                    }
+                    session.collected_data = collected
+                    _flag_modified(session, "collected_data")
+                    if barrier["can_like"]:
+                        result["action_button"] = {
+                            "label": "Перейти к профилю →",
+                            "action": "go_to_profile",
+                            "target_id": target_id,
+                        }
+            except Exception as e:
+                logger.warning(f"pending_match_target update failed: {e}")
+
     await save_interview_session(db, session)
 
     return result

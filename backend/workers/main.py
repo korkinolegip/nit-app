@@ -15,6 +15,7 @@ from workers.tasks.analyze_match_chat import analyze_match_chat_task
 from workers.tasks.check_chat_deadline import check_chat_deadline_task
 from workers.tasks.send_post_date_checkin import send_post_date_checkin_task
 from workers.tasks.check_saved_profiles import check_saved_profiles_task
+from workers.tasks.bot_editor import bot_editor_task
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
 
@@ -31,9 +32,11 @@ class WorkerSettings:
         check_chat_deadline_task,
         send_post_date_checkin_task,
         check_saved_profiles_task,
+        bot_editor_task,
     ]
     cron_jobs = [
         cron(check_saved_profiles_task, hour={0, 6, 12, 18}, minute=30),
+        cron(bot_editor_task, hour=12, minute=0),
     ]
     redis_settings = RedisSettings.from_dsn(settings.REDIS_URL)
     max_jobs = 10

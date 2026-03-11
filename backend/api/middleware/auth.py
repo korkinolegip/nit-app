@@ -93,6 +93,8 @@ async def get_current_user(
         raise HTTPException(401, "User not found")
     if user.is_banned:
         raise HTTPException(403, "User is banned")
+    if getattr(user, 'is_blocked', False):
+        raise HTTPException(403, "User is blocked")
 
     # Update last_seen in background (non-blocking, at most meaningful frequency)
     now = datetime.now(timezone.utc)

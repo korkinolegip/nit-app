@@ -18,6 +18,8 @@ from modules.users.models import (
     PostLike,
     PostRepost,
     PostSave,
+    PostTest,
+    PostTestResult,
     PostView,
     User,
 )
@@ -89,6 +91,22 @@ async def _build_post_dict(
     else:
         author_data = {"id": None, "name": "Нить Daily", "age": None, "avatar_url": "", "profile_completeness_pct": 0}
 
+    # Check if user completed the test for this post
+    test_completed = False
+    if post.has_test:
+        test_res = await db.execute(
+            select(PostTest).where(PostTest.post_id == post.id)
+        )
+        post_test = test_res.scalar_one_or_none()
+        if post_test:
+            result_res = await db.execute(
+                select(PostTestResult).where(
+                    PostTestResult.test_id == post_test.id,
+                    PostTestResult.user_id == current_user_id,
+                )
+            )
+            test_completed = result_res.scalar_one_or_none() is not None
+
     return {
         "id": post.id,
         "text": post.text,
@@ -105,6 +123,7 @@ async def _build_post_dict(
         "is_reposted": reposted.scalar_one_or_none() is not None,
         "is_bot_post": post.is_bot_post,
         "has_test": post.has_test,
+        "test_completed": test_completed,
         "is_mine": post.author_id == current_user_id,
         "author": author_data,
     }
@@ -552,3 +571,139 @@ async def get_saved_posts(
         items.append(await _build_post_dict(post, user.id, db, author, avatar))
 
     return {"posts": items}
+
+
+# ─── Tests ────────────────────────────────────────────────────────────────────
+
+@router.get("/api/posts/{post_id}/test")
+async def get_post_test(
+    post_id: int,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    post = await db.get(Post, post_id)
+    if not post or not post.has_test:
+        raise HTTPException(404, "Тест не найден")
+
+    res = await db.execute(select(PostTest).where(PostTest.post_id == post_id))
+    post_test = res.scalar_one_or_none()
+    if not post_test:
+        raise HTTPException(404, "Тест не найден")
+
+    result_res = await db.execute(
+        select(PostTestResult).where(
+            PostTestResult.test_id == post_test.id,
+            PostTestResult.user_id == user.id,
+        )
+    )
+    existing = result_res.scalar_one_or_none()
+    if existing:
+        result_map = post_test.result_mapping or {}
+        result_data = result_map.get(existing.result_key, {})
+        return {
+            "already_completed": True,
+            "result_key": existing.result_key,
+            "result_description": result_data.get("description", ""),
+        }
+
+    return {
+        "already_completed": False,
+        "title": post_test.title,
+        "questions": post_test.questions or [],
+    }
+
+
+class SubmitTestRequest(BaseModel):
+    answers: dict  # {"q1": "a", "q2": "b", ...}
+
+
+@router.post("/api/posts/{post_id}/test/submit")
+async def submit_post_test(
+    post_id: int,
+    body: SubmitTestRequest,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    post = await db.get(Post, post_id)
+    if not post or not post.has_test:
+        raise HTTPException(404, "Тест не найден")
+
+    res = await db.execute(select(PostTest).where(PostTest.post_id == post_id))
+    post_test = res.scalar_one_or_none()
+    if not post_test:
+        raise HTTPException(404, "Тест не найден")
+
+    existing = await db.execute(
+        select(PostTestResult).where(
+            PostTestResult.test_id == post_test.id,
+            PostTestResult.user_id == user.id,
+        )
+    )
+    if existing.scalar_one_or_none():
+        raise HTTPException(400, "Тест уже пройден")
+
+    # Determine result_key by counting answers matching each result's patterns
+    result_mapping = post_test.result_mapping or {}
+    scores: dict[str, int] = {k: 0 for k in result_mapping}
+    questions = post_test.questions or []
+
+    for q in questions:
+        q_id = q.get("id")
+        answer_key = body.answers.get(q_id)
+        if not answer_key:
+            continue
+        # Each option can have a "result" field pointing to a result_key
+        for opt in q.get("options", []):
+            if opt.get("key") == answer_key:
+                result_hint = opt.get("result")
+                if result_hint and result_hint in scores:
+                    scores[result_hint] += 1
+
+    result_key = max(scores, key=lambda k: scores[k]) if scores else (list(result_mapping.keys())[0] if result_mapping else "unknown")
+
+    # Save result
+    test_result = PostTestResult(
+        test_id=post_test.id,
+        user_id=user.id,
+        answers=body.answers,
+        result_key=result_key,
+    )
+    db.add(test_result)
+
+    # Merge patterns from result_mapping into user's collected_data
+    result_data = result_mapping.get(result_key, {})
+    new_patterns = result_data.get("patterns", {})
+    patterns_updated: list[str] = []
+
+    from api.routers.matches import _compute_completeness
+    from modules.users.repository import get_interview_session
+    from sqlalchemy.orm.attributes import flag_modified
+
+    old_pct = user.profile_completeness_pct or 0
+    new_pct = old_pct
+
+    if new_patterns:
+        session = await get_interview_session(db, user.id)
+        if session:
+            collected = dict(session.collected_data or {})
+            for pattern_key, pattern_val in new_patterns.items():
+                if pattern_key not in collected:
+                    collected[pattern_key] = pattern_val
+                    patterns_updated.append(pattern_key)
+            if patterns_updated:
+                session.collected_data = collected
+                flag_modified(session, "collected_data")
+                # Recompute completeness
+                new_pct_val, _, _ = _compute_completeness(user, collected)
+                user.profile_completeness_pct = new_pct_val
+                new_pct = new_pct_val
+
+    await db.commit()
+
+    return {
+        "result_key": result_key,
+        "result_description": result_data.get("description", ""),
+        "patterns_updated": patterns_updated,
+        "old_completeness_pct": old_pct,
+        "new_completeness_pct": new_pct,
+    }

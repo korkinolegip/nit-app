@@ -138,6 +138,85 @@ async def lifespan(app: FastAPI):
             "CREATE INDEX IF NOT EXISTS idx_saved_profiles_user_id ON saved_profiles (user_id)"
         ))
 
+        # ── Admin + bot editor fields ─────────────────────────────────────────
+        await conn.execute(_sa.text(
+            "ALTER TABLE users ADD COLUMN IF NOT EXISTS is_bot_editor BOOLEAN NOT NULL DEFAULT FALSE"
+        ))
+        await conn.execute(_sa.text(
+            "ALTER TABLE users ADD COLUMN IF NOT EXISTS is_admin BOOLEAN NOT NULL DEFAULT FALSE"
+        ))
+        await conn.execute(_sa.text(
+            "ALTER TABLE users ADD COLUMN IF NOT EXISTS is_blocked BOOLEAN NOT NULL DEFAULT FALSE"
+        ))
+
+        # ── Post tests ────────────────────────────────────────────────────────
+        await conn.execute(_sa.text("""
+            CREATE TABLE IF NOT EXISTS post_tests (
+                id SERIAL PRIMARY KEY,
+                post_id INTEGER NOT NULL REFERENCES posts(id) ON DELETE CASCADE,
+                title TEXT NOT NULL,
+                questions JSONB NOT NULL DEFAULT '[]',
+                result_mapping JSONB NOT NULL DEFAULT '{}',
+                created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+                UNIQUE(post_id)
+            )
+        """))
+        await conn.execute(_sa.text("""
+            CREATE TABLE IF NOT EXISTS post_test_results (
+                id SERIAL PRIMARY KEY,
+                test_id INTEGER NOT NULL REFERENCES post_tests(id) ON DELETE CASCADE,
+                user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                answers JSONB NOT NULL DEFAULT '{}',
+                result_key TEXT,
+                completed_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+                UNIQUE(test_id, user_id)
+            )
+        """))
+        await conn.execute(_sa.text(
+            "CREATE INDEX IF NOT EXISTS idx_post_test_results_user_id ON post_test_results (user_id)"
+        ))
+
+        # ── Admin drafts ──────────────────────────────────────────────────────
+        await conn.execute(_sa.text("""
+            CREATE TABLE IF NOT EXISTS admin_drafts (
+                id SERIAL PRIMARY KEY,
+                type VARCHAR(20) NOT NULL DEFAULT 'update',
+                raw_text TEXT,
+                generated_text TEXT,
+                status VARCHAR(20) NOT NULL DEFAULT 'pending',
+                github_commits JSONB,
+                post_id INTEGER REFERENCES posts(id) ON DELETE SET NULL,
+                created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+                published_at TIMESTAMPTZ
+            )
+        """))
+        await conn.execute(_sa.text(
+            "CREATE INDEX IF NOT EXISTS idx_admin_drafts_status ON admin_drafts (status, created_at DESC)"
+        ))
+
+    # ── Create "Нить Daily" bot editor user if not exists ────────────────────
+    from db.connection import async_session as _async_session
+    from sqlalchemy import select as _select
+    from modules.users.models import User as _User
+    async with _async_session() as _db:
+        try:
+            _existing = await _db.execute(
+                _select(_User).where(_User.is_bot_editor == True)
+            )
+            if not _existing.scalar_one_or_none():
+                _bot_user = _User(
+                    telegram_id=0,
+                    name="Нить Daily",
+                    is_bot_editor=True,
+                    is_active=False,
+                    onboarding_step="complete",
+                )
+                _db.add(_bot_user)
+                await _db.commit()
+                logger.info("Created 'Нить Daily' bot editor user")
+        except Exception as _e:
+            logger.warning(f"Bot editor user setup: {_e}")
+
     # Set up Telegram bot webhook inside FastAPI
     if settings.BOT_TOKEN:
         try:

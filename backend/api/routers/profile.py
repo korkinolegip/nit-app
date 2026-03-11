@@ -88,6 +88,7 @@ async def get_profile(
             "profile_completeness_pct": pct,
             "filled_patterns": filled,
             "missing_patterns": missing,
+            "is_admin": getattr(user, "is_admin", False),
         },
         photos=photo_list,
         personality=personality,
