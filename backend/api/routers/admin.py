@@ -403,11 +403,6 @@ async def admin_patch_user(
 
 # ── Pydantic bodies ───────────────────────────────────────────────────────────
 
-class BotPostRequest(BaseModel):
-    text: str
-    hashtags: list[str] = []
-    has_test: bool = False
-
 class GeneratePostRequest(BaseModel):
     topic: str
 
@@ -735,31 +730,6 @@ async def admin_delete_comment(
     await db.delete(c)
     await db.commit()
     return {"ok": True}
-
-
-# ── Bot post creation ─────────────────────────────────────────────────────────
-
-@router.post("/bot-post")
-async def admin_create_bot_post(
-    body: BotPostRequest,
-    admin: User = Depends(require_admin),
-    db: AsyncSession = Depends(get_db),
-):
-    bot_res = await db.execute(select(User).where(User.is_bot_editor == True))
-    bot_user = bot_res.scalar_one_or_none()
-    if not bot_user:
-        raise HTTPException(503, "Bot editor user not found")
-    post = Post(
-        author_id=bot_user.id,
-        is_bot_post=True,
-        text=body.text,
-        hashtags=body.hashtags,
-        has_test=body.has_test,
-    )
-    db.add(post)
-    await db.commit()
-    await db.refresh(post)
-    return {"ok": True, "post_id": post.id}
 
 
 @router.post("/generate-post")

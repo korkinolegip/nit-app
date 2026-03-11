@@ -187,8 +187,11 @@ function Drafts() {
   const publish = async (id: number) => {
     try {
       await adminPost(`/drafts/${id}/publish`)
+    } catch {
+      showToast('Не удалось получить ответ от сервера — проверьте, возможно пост уже опубликован')
+    } finally {
       load()
-    } catch (e: any) { showToast('Ошибка публикации: ' + String(e?.message ?? e).substring(0, 60)) }
+    }
   }
 
   const discard = async (id: number) => {
@@ -825,8 +828,6 @@ function Content() {
   const [tab, setTab] = useState<'posts' | 'comments'>('posts')
   const [posts, setPosts] = useState<any[]>([])
   const [comments, setComments] = useState<any[]>([])
-  const [botTopic, setBotTopic] = useState('')
-  const [posting, setPosting] = useState(false)
 
   useEffect(() => {
     if (tab === 'posts') {
@@ -848,38 +849,8 @@ function Content() {
     setComments(c => c.filter(x => x.id !== id))
   }
 
-  const createBotPost = async () => {
-    if (!botTopic.trim()) return
-    setPosting(true)
-    try {
-      const genRes: any = await adminPost('/generate-post', { topic: botTopic })
-      await adminPost('/bot-post', { text: genRes.text })
-      setBotTopic('')
-      alert('Пост опубликован!')
-    } catch { /* ignore */ } finally { setPosting(false) }
-  }
-
   return (
     <div style={{ padding: '0 16px 24px' }}>
-      {/* Quick bot post */}
-      <div style={{ ...card, marginTop: 16 }}>
-        <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--w)', marginBottom: 10 }}>Быстрый бот-пост</div>
-        <input
-          value={botTopic}
-          onChange={e => setBotTopic(e.target.value)}
-          placeholder="Тема для генерации..."
-          style={{
-            width: '100%', padding: '9px 12px', borderRadius: 10,
-            border: '1px solid var(--l)', background: 'var(--bg3)',
-            color: 'var(--w)', fontSize: 13, fontFamily: 'Inter',
-            boxSizing: 'border-box', marginBottom: 10,
-          }}
-        />
-        <button onClick={createBotPost} disabled={posting} style={btn(true)}>
-          {posting ? 'Публикую...' : 'Сгенерировать и опубликовать'}
-        </button>
-      </div>
-
       {/* Sub-tabs */}
       <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
         {(['posts', 'comments'] as const).map(t => (
