@@ -48,15 +48,56 @@ function PostSkeleton() {
   )
 }
 
+// ─── Welcome Banner ───────────────────────────────────────────────────────────
+
+function WelcomeBanner({ onClose }: { onClose: () => void }) {
+  useEffect(() => {
+    const timer = setTimeout(onClose, 6000)
+    return () => clearTimeout(timer)
+  }, [onClose])
+
+  return (
+    <div style={{
+      margin: '0 0 12px',
+      background: 'rgba(123,94,255,0.12)',
+      border: '1px solid rgba(123,94,255,0.3)',
+      borderRadius: 16, padding: '14px 16px',
+      display: 'flex', alignItems: 'flex-start', gap: 12,
+      animation: 'fadeIn 0.4s ease',
+    }}>
+      <div style={{ fontSize: 24, flexShrink: 0 }}>✦</div>
+      <div style={{ flex: 1 }}>
+        <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--d1)', fontFamily: 'Inter', marginBottom: 4 }}>
+          Добро пожаловать в Нить!
+        </div>
+        <div style={{ fontSize: 13, color: 'var(--d2)', fontFamily: 'Inter', lineHeight: 1.5 }}>
+          Здесь ты найдёшь людей и статьи об отношениях. Загляни в раздел Люди чтобы найти совпадения.
+        </div>
+      </div>
+      <button
+        onClick={onClose}
+        style={{
+          background: 'none', border: 'none', cursor: 'pointer',
+          color: 'var(--d3)', fontSize: 18, lineHeight: 1, padding: '0 2px', flexShrink: 0,
+        }}
+      >
+        ×
+      </button>
+    </div>
+  )
+}
+
 // ─── TestSheet ────────────────────────────────────────────────────────────────
 
 function TestSheet({ postId, onClose, onComplete }: { postId: number; onClose: () => void; onComplete: () => void }) {
   const [testData, setTestData] = useState<PostTestData | null>(null)
   const [step, setStep] = useState(0)
   const [answers, setAnswers] = useState<Record<string, string>>({})
+  const [selected, setSelected] = useState<string | null>(null)
   const [result, setResult] = useState<{ key: string; description: string; pct_before: number; pct_after: number } | null>(null)
   const [loading, setLoading] = useState(true)
   const [submitting, setSubmitting] = useState(false)
+  const [confirmClose, setConfirmClose] = useState(false)
 
   useEffect(() => {
     getPostTest(postId)
@@ -64,16 +105,23 @@ function TestSheet({ postId, onClose, onComplete }: { postId: number; onClose: (
       .catch(() => setLoading(false))
   }, [postId])
 
-  const selectOption = (questionId: string, optionKey: string) => {
-    const newAnswers = { ...answers, [questionId]: optionKey }
-    setAnswers(newAnswers)
+  const questions = testData ? (testData.questions as PostTestQuestion[]) : []
+  const total = questions.length
+  const progress = total > 0 ? ((step + (selected ? 1 : 0)) / total) : 0
 
-    if (!testData) return
-    const questions = testData.questions as PostTestQuestion[]
+  const handleSelect = (questionId: string, optionKey: string) => {
+    setSelected(optionKey)
+    setAnswers(prev => ({ ...prev, [questionId]: optionKey }))
+  }
+
+  const handleNext = () => {
+    if (!selected || !testData) return
+    const newAnswers = { ...answers }
+
     if (step < questions.length - 1) {
-      setTimeout(() => setStep(s => s + 1), 300)
+      setStep(s => s + 1)
+      setSelected(answers[questions[step + 1]?.id] || null)
     } else {
-      // All answered — submit
       setSubmitting(true)
       submitPostTest(postId, newAnswers)
         .then(res => {
@@ -85,20 +133,75 @@ function TestSheet({ postId, onClose, onComplete }: { postId: number; onClose: (
     }
   }
 
+  const handleBack = () => {
+    if (step > 0) {
+      const prevStep = step - 1
+      setStep(prevStep)
+      setSelected(answers[questions[prevStep]?.id] || null)
+    }
+  }
+
+  const handleCloseAttempt = () => {
+    if (result || step === 0) { onClose(); return }
+    setConfirmClose(true)
+  }
+
+  const q = questions[step]
+  const intro = (q as any)?.intro
+
   return (
     <div style={{
       position: 'fixed', inset: 0, zIndex: 200,
       display: 'flex', flexDirection: 'column', justifyContent: 'flex-end',
     }}>
-      <div onClick={onClose} style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.55)', backdropFilter: 'blur(2px)' }} />
+      <div onClick={handleCloseAttempt} style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.55)', backdropFilter: 'blur(2px)' }} />
       <div style={{
         position: 'relative', background: 'var(--bg2)',
         borderRadius: '20px 20px 0 0', padding: '0 20px 40px',
         border: '1px solid var(--l)', borderBottom: 'none',
         animation: 'slideUp 0.28s cubic-bezier(0.34,1.2,0.64,1)',
-        maxHeight: '85dvh', overflowY: 'auto',
+        maxHeight: '90dvh', overflowY: 'auto',
       }}>
-        <div style={{ width: 36, height: 4, borderRadius: 2, background: 'var(--d4)', margin: '12px auto 20px' }} />
+        {/* Handle */}
+        <div style={{ width: 36, height: 4, borderRadius: 2, background: 'var(--d4)', margin: '12px auto 0' }} />
+
+        {/* Progress bar + header */}
+        {testData && !result && (
+          <div style={{ marginTop: 16, marginBottom: 20 }}>
+            <div style={{
+              height: 3, background: 'var(--bg4)', borderRadius: 2, overflow: 'hidden', marginBottom: 10,
+            }}>
+              <div style={{
+                height: '100%', background: '#7B5EFF', borderRadius: 2,
+                width: `${progress * 100}%`, transition: 'width 0.3s ease',
+              }} />
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <button
+                onClick={step > 0 ? handleBack : handleCloseAttempt}
+                style={{
+                  background: 'none', border: 'none', cursor: 'pointer',
+                  color: 'var(--d3)', fontSize: 20, padding: '0 4px', lineHeight: 1,
+                }}
+              >
+                {step > 0 ? '←' : '×'}
+              </button>
+              <span style={{ fontSize: 12, color: 'var(--d3)', fontFamily: 'Inter' }}>
+                Вопрос {step + 1} из {total}
+              </span>
+              <button
+                onClick={handleCloseAttempt}
+                style={{
+                  background: 'none', border: 'none', cursor: 'pointer',
+                  color: 'var(--d3)', fontSize: 20, padding: '0 4px', lineHeight: 1,
+                  visibility: step > 0 ? 'visible' : 'hidden',
+                }}
+              >
+                ×
+              </button>
+            </div>
+          </div>
+        )}
 
         {loading && <div style={{ textAlign: 'center', padding: '20px 0', color: 'var(--d3)' }}>Загрузка теста...</div>}
 
@@ -106,36 +209,45 @@ function TestSheet({ postId, onClose, onComplete }: { postId: number; onClose: (
           <div style={{ textAlign: 'center', padding: '20px 0', color: 'var(--d3)' }}>Тест недоступен</div>
         )}
 
-        {testData && !result && !submitting && (() => {
-          const questions = testData.questions as PostTestQuestion[]
-          const q = questions[step]
-          return (
-            <>
-              <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--w)', marginBottom: 6 }}>{testData.title}</div>
-              <div style={{ fontSize: 12, color: 'var(--d3)', marginBottom: 20 }}>
-                Вопрос {step + 1} из {questions.length}
-              </div>
-              <div style={{ fontSize: 15, color: 'var(--d1)', lineHeight: 1.5, marginBottom: 20 }}>{q.text}</div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                {q.options.map(opt => (
-                  <button
-                    key={opt.key}
-                    onClick={() => selectOption(q.id, opt.key)}
-                    style={{
-                      padding: '13px 16px', borderRadius: 14,
-                      border: answers[q.id] === opt.key ? '1px solid rgba(123,94,255,0.6)' : '1px solid var(--l)',
-                      background: answers[q.id] === opt.key ? 'rgba(123,94,255,0.15)' : 'var(--bg3)',
-                      color: 'var(--d1)', fontSize: 14, fontFamily: 'Inter',
-                      textAlign: 'left', cursor: 'pointer',
-                    }}
-                  >
-                    {opt.text}
-                  </button>
-                ))}
-              </div>
-            </>
-          )
-        })()}
+        {testData && !result && !submitting && q && (
+          <>
+            <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--w)', marginBottom: 6 }}>{testData.title}</div>
+            {intro && step === 0 && (
+              <div style={{ fontSize: 13, color: 'var(--d3)', fontFamily: 'Inter', marginBottom: 12, fontStyle: 'italic' }}>{intro}</div>
+            )}
+            <div style={{ fontSize: 15, color: 'var(--d1)', lineHeight: 1.5, marginBottom: 20 }}>{q.text}</div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+              {q.options.map(opt => (
+                <button
+                  key={opt.key}
+                  onClick={() => handleSelect(q.id, opt.key)}
+                  style={{
+                    padding: '13px 16px', borderRadius: 14,
+                    border: selected === opt.key ? '1px solid rgba(123,94,255,0.6)' : '1px solid var(--l)',
+                    background: selected === opt.key ? 'rgba(123,94,255,0.15)' : 'var(--bg3)',
+                    color: 'var(--d1)', fontSize: 14, fontFamily: 'Inter',
+                    textAlign: 'left', cursor: 'pointer', transition: 'all 0.15s',
+                  }}
+                >
+                  {opt.text}
+                </button>
+              ))}
+            </div>
+            <button
+              onClick={handleNext}
+              disabled={!selected}
+              style={{
+                width: '100%', marginTop: 20, padding: '13px', borderRadius: 14,
+                background: selected ? '#7B5EFF' : 'var(--bg4)',
+                border: 'none', color: selected ? '#fff' : 'var(--d4)',
+                fontSize: 14, fontWeight: 600, fontFamily: 'Inter',
+                cursor: selected ? 'pointer' : 'default', transition: 'all 0.2s',
+              }}
+            >
+              {step < total - 1 ? 'Далее' : 'Завершить'}
+            </button>
+          </>
+        )}
 
         {submitting && (
           <div style={{ textAlign: 'center', padding: '20px 0', color: 'var(--d3)' }}>Обрабатываю результат...</div>
@@ -143,15 +255,34 @@ function TestSheet({ postId, onClose, onComplete }: { postId: number; onClose: (
 
         {result && (
           <>
+            <div style={{ width: 36, height: 4, borderRadius: 2, background: 'var(--d4)', margin: '0 auto 20px' }} />
             <div style={{ fontSize: 16, fontWeight: 700, color: 'var(--w)', marginBottom: 10 }}>Результат</div>
             <div style={{ fontSize: 14, color: 'var(--d1)', lineHeight: 1.6, marginBottom: 16 }}>{result.description}</div>
-            {result.pct_after > result.pct_before && (
+            {result.pct_after > result.pct_before ? (
               <div style={{
                 background: 'rgba(123,94,255,0.15)', border: '1px solid rgba(123,94,255,0.3)',
-                borderRadius: 12, padding: '10px 14px', marginBottom: 16,
-                fontSize: 13, color: 'rgba(180,150,255,0.9)',
+                borderRadius: 12, padding: '12px 14px', marginBottom: 20,
               }}>
-                Полнота профиля: {result.pct_before}% → {result.pct_after}%
+                <div style={{ fontSize: 12, color: 'var(--d3)', fontFamily: 'Inter', marginBottom: 8 }}>Полнота профиля</div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <div style={{ flex: 1, height: 6, background: 'var(--bg4)', borderRadius: 3, overflow: 'hidden' }}>
+                    <div style={{
+                      height: '100%', background: '#7B5EFF', borderRadius: 3,
+                      width: `${result.pct_after}%`, transition: 'width 0.6s ease',
+                    }} />
+                  </div>
+                  <span style={{ fontSize: 13, fontWeight: 600, color: 'rgba(180,150,255,0.9)', fontFamily: 'Inter', whiteSpace: 'nowrap' }}>
+                    {result.pct_before}% → {result.pct_after}% <span style={{ color: 'rgba(130,200,130,0.9)' }}>(+{result.pct_after - result.pct_before}%)</span>
+                  </span>
+                </div>
+              </div>
+            ) : (
+              <div style={{
+                background: 'var(--bg3)', border: '1px solid var(--l)',
+                borderRadius: 12, padding: '10px 14px', marginBottom: 16,
+                fontSize: 13, color: 'var(--d3)', fontFamily: 'Inter',
+              }}>
+                Этот паттерн уже был заполнен — учтено
               </div>
             )}
             <button
@@ -162,9 +293,38 @@ function TestSheet({ postId, onClose, onComplete }: { postId: number; onClose: (
                 color: '#fff', fontSize: 14, fontWeight: 600, fontFamily: 'Inter', cursor: 'pointer',
               }}
             >
-              Закрыть
+              Вернуться в ленту
             </button>
           </>
+        )}
+
+        {/* Confirm close dialog */}
+        {confirmClose && (
+          <div style={{
+            position: 'absolute', inset: 0, zIndex: 10,
+            display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'flex-end',
+            background: 'rgba(0,0,0,0.5)', borderRadius: '20px 20px 0 0', padding: '0 20px 40px',
+          }}>
+            <div style={{
+              background: 'var(--bg3)', borderRadius: 16, padding: '20px', width: '100%',
+              border: '1px solid var(--l)',
+            }}>
+              <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--d1)', fontFamily: 'Inter', marginBottom: 8 }}>Прервать тест?</div>
+              <div style={{ fontSize: 13, color: 'var(--d3)', fontFamily: 'Inter', marginBottom: 16 }}>Прогресс не сохранится</div>
+              <div style={{ display: 'flex', gap: 10 }}>
+                <button onClick={() => setConfirmClose(false)} style={{
+                  flex: 1, padding: '11px', borderRadius: 12,
+                  background: 'var(--bg4)', border: 'none',
+                  color: 'var(--d2)', fontSize: 14, fontFamily: 'Inter', cursor: 'pointer',
+                }}>Продолжить</button>
+                <button onClick={onClose} style={{
+                  flex: 1, padding: '11px', borderRadius: 12,
+                  background: 'rgba(255,68,102,0.15)', border: '1px solid rgba(255,68,102,0.3)',
+                  color: '#ff4466', fontSize: 14, fontFamily: 'Inter', cursor: 'pointer',
+                }}>Выйти</button>
+              </div>
+            </div>
+          </div>
         )}
       </div>
     </div>
@@ -774,8 +934,16 @@ export default function Feed({ onBack }: FeedProps) {
   const [showCreate, setShowCreate] = useState(false)
   const [commentPostId, setCommentPostId] = useState<number | null>(null)
   const [testPostId, setTestPostId] = useState<number | null>(null)
+  const [showWelcome, setShowWelcome] = useState(() => {
+    return !localStorage.getItem('nit_welcome_seen')
+  })
   const scrollRef = useRef<HTMLDivElement>(null)
   const PAGE = 20
+
+  const handleDismissWelcome = () => {
+    localStorage.setItem('nit_welcome_seen', '1')
+    setShowWelcome(false)
+  }
 
   const loadFeed = useCallback(async (reset = false) => {
     const currentOffset = reset ? 0 : offset
@@ -908,6 +1076,8 @@ export default function Feed({ onBack }: FeedProps) {
         onScroll={handleScroll}
         style={{ flex: 1, overflowY: 'auto', padding: '12px 16px' }}
       >
+        {showWelcome && <WelcomeBanner onClose={handleDismissWelcome} />}
+
         {isLoading ? (
           <>
             <PostSkeleton /><PostSkeleton /><PostSkeleton />
@@ -994,6 +1164,7 @@ export default function Feed({ onBack }: FeedProps) {
       <style>{`
         @keyframes slideUp { from { transform: translateY(100%) } to { transform: none } }
         @keyframes pulse { 0%, 100% { opacity: 0.4 } 50% { opacity: 0.8 } }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(-8px) } to { opacity: 1; transform: none } }
       `}</style>
     </div>
   )

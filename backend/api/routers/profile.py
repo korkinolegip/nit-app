@@ -99,6 +99,7 @@ async def get_profile(
             "missing_patterns": missing,
             "is_admin": getattr(user, "is_admin", False),
             "completed_tests_count": completed_tests_count,
+            "onboarding_complete": user.onboarding_step == "complete",
         },
         photos=photo_list,
         personality=personality,

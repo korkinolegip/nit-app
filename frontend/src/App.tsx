@@ -50,7 +50,8 @@ export default function App() {
           setIsReturning(true)
           setSessionComplete(status.profile_ready)
           setHasPhotos(status.has_photos ?? false)
-          setScreen('chat')
+          const onboardingDone = (profile as any)?.user?.onboarding_complete ?? false
+          setScreen(onboardingDone ? 'feed' : 'chat')
         } else {
           setScreen('welcome')
         }
