@@ -344,6 +344,60 @@ async def like_user_directly(
     }
 
 
+async def _get_fillable_by_test(user: User, target: User, missing: list[str], db: AsyncSession) -> list[dict]:
+    """Return list of patterns that can be filled by taking a test (with post_id and test metadata)."""
+    thirty_days_ago = datetime.now(timezone.utc) - timedelta(days=30)
+    recent_posts_res = await db.execute(
+        select(Post).where(Post.has_test == True, Post.created_at >= thirty_days_ago)
+        .order_by(Post.created_at.desc())
+    )
+    recent_posts = list(recent_posts_res.scalars().all())
+
+    post_test_map: dict[int, PostTest] = {}
+    if recent_posts:
+        post_ids = [p.id for p in recent_posts]
+        tests_res = await db.execute(select(PostTest).where(PostTest.post_id.in_(post_ids)))
+        for pt in tests_res.scalars().all():
+            post_test_map[pt.post_id] = pt
+
+    target_completed_test_ids: set[int] = set()
+    if post_test_map:
+        test_ids = [pt.id for pt in post_test_map.values()]
+        target_results_res = await db.execute(
+            select(PostTestResult).where(
+                PostTestResult.user_id == target.id,
+                PostTestResult.test_id.in_(test_ids),
+            )
+        )
+        target_completed_test_ids = {r.test_id for r in target_results_res.scalars().all()}
+
+    fillable_by_test = []
+    for pattern in missing:
+        matched_post_id: int | None = None
+        matched_test: PostTest | None = None
+        for post_id, pt in post_test_map.items():
+            rm = pt.result_mapping or {}
+            covers = any(
+                pattern in (res_data.get("patterns") or {})
+                for res_data in rm.values()
+                if isinstance(res_data, dict)
+            )
+            if covers:
+                matched_post_id = post_id
+                matched_test = pt
+                break
+
+        if matched_test is not None and matched_post_id is not None:
+            fillable_by_test.append({
+                "pattern_key": pattern,
+                "pattern_name": _PATTERN_NAMES.get(pattern, pattern),
+                "post_id": matched_post_id,
+                "test_title": matched_test.title,
+                "target_has_completed": matched_test.id in target_completed_test_ids,
+            })
+    return fillable_by_test
+
+
 @router.get("/check-compatibility/{target_user_id}")
 async def check_compatibility(
     target_user_id: int,
@@ -364,67 +418,17 @@ async def check_compatibility(
     _, current_filled, _ = _compute_completeness(user, cd)
     missing = barrier["missing_patterns"]
 
-    # Find recent PostTests (last 30 days) that may cover missing patterns
-    thirty_days_ago = datetime.now(timezone.utc) - timedelta(days=30)
-    recent_posts_res = await db.execute(
-        select(Post).where(Post.has_test == True, Post.created_at >= thirty_days_ago)
-        .order_by(Post.created_at.desc())
-    )
-    recent_posts = list(recent_posts_res.scalars().all())
-
-    post_test_map: dict[int, PostTest] = {}  # post_id -> PostTest
-    if recent_posts:
-        post_ids = [p.id for p in recent_posts]
-        tests_res = await db.execute(
-            select(PostTest).where(PostTest.post_id.in_(post_ids))
-        )
-        for pt in tests_res.scalars().all():
-            post_test_map[pt.post_id] = pt
-
-    # Check which tests the target user has already completed
-    target_completed_test_ids: set[int] = set()
-    if post_test_map:
-        test_ids = [pt.id for pt in post_test_map.values()]
-        target_results_res = await db.execute(
-            select(PostTestResult).where(
-                PostTestResult.user_id == target.id,
-                PostTestResult.test_id.in_(test_ids),
-            )
-        )
-        target_completed_test_ids = {r.test_id for r in target_results_res.scalars().all()}
-
-    fillable_by_test = []
-    fillable_by_chat = []
-
-    for pattern in missing:
-        matched_post_id: int | None = None
-        matched_test: PostTest | None = None
-        for post_id, pt in post_test_map.items():
-            rm = pt.result_mapping or {}
-            covers = any(
-                pattern in (res_data.get("patterns") or {})
-                for res_data in rm.values()
-                if isinstance(res_data, dict)
-            )
-            if covers:
-                matched_post_id = post_id
-                matched_test = pt
-                break
-
-        if matched_test is not None and matched_post_id is not None:
-            fillable_by_test.append({
-                "pattern_key": pattern,
-                "pattern_name": _PATTERN_NAMES.get(pattern, pattern),
-                "test_id": matched_post_id,
-                "test_title": matched_test.title,
-                "target_has_completed": matched_test.id in target_completed_test_ids,
-            })
-        else:
-            fillable_by_chat.append({
-                "pattern_key": pattern,
-                "pattern_name": _PATTERN_NAMES.get(pattern, pattern),
-                "suggested_question": _SUGGESTED_QUESTIONS.get(pattern, ""),
-            })
+    fillable_by_test = await _get_fillable_by_test(user, target, missing, db)
+    fillable_by_test_patterns = {item["pattern_key"] for item in fillable_by_test}
+    fillable_by_chat = [
+        {
+            "pattern_key": pattern,
+            "pattern_name": _PATTERN_NAMES.get(pattern, pattern),
+            "suggested_question": _SUGGESTED_QUESTIONS.get(pattern, ""),
+        }
+        for pattern in missing
+        if pattern not in fillable_by_test_patterns
+    ]
 
     return {
         "can_like": barrier["can_like"],

@@ -51,7 +51,8 @@ export default function App() {
           setSessionComplete(status.profile_ready)
           setHasPhotos(status.has_photos ?? false)
           const onboardingDone = (profile as any)?.user?.onboarding_complete ?? false
-          setScreen(onboardingDone ? 'feed' : 'chat')
+          const hasPendingMatch = (profile as any)?.user?.has_pending_match_target ?? false
+          setScreen(onboardingDone && !hasPendingMatch ? 'feed' : 'chat')
         } else {
           setScreen('welcome')
         }

@@ -56,7 +56,7 @@ export interface MatchesResponse {
 export interface FillableByTest {
   pattern_key: string
   pattern_name: string
-  test_id: number
+  post_id: number
   test_title: string
   target_has_completed: boolean
 }

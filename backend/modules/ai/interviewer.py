@@ -452,15 +452,19 @@ async def process_post_onboarding_turn(
                         }
                     else:
                         # Compute already_answered for context
-                        from api.routers.matches import _compute_completeness
+                        from api.routers.matches import _compute_completeness, _get_fillable_by_test
                         _, current_filled, _ = _compute_completeness(user, collected)
+                        try:
+                            fbt = await _get_fillable_by_test(user, target_user, barrier["missing_patterns"], db)
+                        except Exception:
+                            fbt = []
                         collected["pending_match_target"] = {
                             "user_id": target_id,
                             "name": target_user.name or "",
                             "missing_patterns": barrier["missing_patterns"],
                             "can_like": barrier["can_like"],
                             "already_answered_patterns": current_filled,
-                            "fillable_by_test": [],  # populated by check-compatibility endpoint
+                            "fillable_by_test": fbt,
                         }
                         session.collected_data = collected
                         _flag_modified(session, "collected_data")

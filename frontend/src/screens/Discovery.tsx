@@ -1066,10 +1066,10 @@ function BarrierSheet({ info, onClose, onSave, onGoToChat }: {
     } catch {}
     // Remove completed test from the list
     if (activeTestId !== null) {
-      setFillableTests(prev => prev.filter(t => t.test_id !== activeTestId))
+      setFillableTests(prev => prev.filter(t => t.post_id !== activeTestId))
       setCurrentPct(p => Math.min(100, p + 7))
       // Check if all fillable_by_test are done
-      const remaining = fillableTests.filter(t => t.test_id !== activeTestId)
+      const remaining = fillableTests.filter(t => t.post_id !== activeTestId)
       if (remaining.length === 0 && info.fillable_by_chat.length === 0) {
         setTimeout(() => setUnlocked(true), 400)
       }
@@ -1129,11 +1129,11 @@ function BarrierSheet({ info, onClose, onSave, onGoToChat }: {
             <div style={{ fontSize: 12, color: 'var(--d3)', fontFamily: 'Inter', marginBottom: 8, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Можно пройти тест</div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
               {fillableTests.map(t => {
-                const done = completedTests.has(t.test_id)
+                const done = completedTests.has(t.post_id)
                 return (
                   <button
-                    key={t.test_id}
-                    onClick={() => !done && setActiveTestId(t.test_id)}
+                    key={t.post_id}
+                    onClick={() => !done && setActiveTestId(t.post_id)}
                     style={{
                       display: 'flex', alignItems: 'center', justifyContent: 'space-between',
                       padding: '12px 14px', borderRadius: 12,
@@ -1202,7 +1202,7 @@ function BarrierSheet({ info, onClose, onSave, onGoToChat }: {
           </button>
         ) : hasTests ? (
           <button
-            onClick={() => setActiveTestId(fillableTests[0]?.test_id ?? null)}
+            onClick={() => setActiveTestId(fillableTests[0]?.post_id ?? null)}
             style={{
               width: '100%', padding: '14px', background: 'var(--w)',
               border: 'none', borderRadius: 13, marginBottom: 10,

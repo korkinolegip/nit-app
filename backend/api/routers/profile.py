@@ -80,6 +80,13 @@ async def get_profile(
     test_results = list(test_results_res.scalars().all())
     completed_tests_count = len(test_results)
 
+    # Check pending match target
+    from modules.users.repository import get_interview_session
+    session = await get_interview_session(db, user.id)
+    has_pending_match_target = bool(
+        session and (session.collected_data or {}).get("pending_match_target")
+    )
+
     return ProfileResponse(
         user={
             "id": user.id,
@@ -100,6 +107,7 @@ async def get_profile(
             "is_admin": getattr(user, "is_admin", False),
             "completed_tests_count": completed_tests_count,
             "onboarding_complete": user.onboarding_step == "complete",
+            "has_pending_match_target": has_pending_match_target,
         },
         photos=photo_list,
         personality=personality,
