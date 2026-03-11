@@ -15,9 +15,10 @@ export interface Message {
   }
 }
 
-type NavScreen = 'discovery' | 'matches' | 'chats' | 'views' | 'profile'
+type NavScreen = 'discovery' | 'matches' | 'chats' | 'views' | 'profile' | 'feed'
 
 const NAV_LABELS: Record<NavScreen, string> = {
+  feed: 'Лента',
   discovery: 'Люди',
   matches: 'Матчи',
   chats: 'Чаты',
@@ -114,6 +115,8 @@ export function useChat(opts?: { onNavigate?: (screen: NavScreen) => void }) {
         navigateTo('chats', res.reply)
       } else if (rt === 'navigate_views' || rt === 'go_to_views') {
         navigateTo('views', res.reply)
+      } else if (rt === 'navigate_feed' || rt === 'go_to_feed') {
+        navigateTo('feed', res.reply)
       } else if (res.menu_buttons && res.menu_buttons.length > 0) {
         addMessage({
           sender: 'ai',

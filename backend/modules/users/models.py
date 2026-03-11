@@ -9,6 +9,7 @@ from sqlalchemy import (
     Float,
     ForeignKey,
     Index,
+    Integer,
     SmallInteger,
     String,
     TIMESTAMP,
@@ -361,4 +362,105 @@ class ProfileView(Base):
     __table_args__ = (
         Index("idx_profile_views_viewed_id", "viewed_id", "seen_at"),
         Index("idx_profile_views_viewer_id", "viewer_id", "seen_at"),
+    )
+
+
+# ─── Feed models ─────────────────────────────────────────────────────────────
+
+class Post(Base):
+    __tablename__ = "posts"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    author_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    is_bot_post: Mapped[bool] = mapped_column(Boolean, default=False)
+    text: Mapped[str | None] = mapped_column(Text)
+    media_key: Mapped[str | None] = mapped_column(Text)   # storage key, not URL
+    media_type: Mapped[str | None] = mapped_column(String(10))  # 'image' | 'gif'
+    hashtags: Mapped[list | None] = mapped_column(JSONB, default=list)
+    likes_count: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    comments_count: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    reposts_count: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    views_count: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    has_test: Mapped[bool] = mapped_column(Boolean, default=False)
+    created_at: Mapped[datetime] = mapped_column(TIMESTAMPTZ, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        TIMESTAMPTZ, server_default=func.now(), onupdate=func.now()
+    )
+
+    __table_args__ = (
+        Index("idx_posts_author_id", "author_id"),
+        Index("idx_posts_created_at", "created_at"),
+    )
+
+
+class PostLike(Base):
+    __tablename__ = "post_likes"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    post_id: Mapped[int] = mapped_column(ForeignKey("posts.id", ondelete="CASCADE"))
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
+    created_at: Mapped[datetime] = mapped_column(TIMESTAMPTZ, server_default=func.now())
+
+    __table_args__ = (
+        UniqueConstraint("post_id", "user_id"),
+        Index("idx_post_likes_post_id", "post_id"),
+    )
+
+
+class PostComment(Base):
+    __tablename__ = "post_comments"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    post_id: Mapped[int] = mapped_column(ForeignKey("posts.id", ondelete="CASCADE"))
+    author_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
+    text: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(TIMESTAMPTZ, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        TIMESTAMPTZ, server_default=func.now(), onupdate=func.now()
+    )
+
+    __table_args__ = (Index("idx_post_comments_post_id", "post_id"),)
+
+
+class PostRepost(Base):
+    __tablename__ = "post_reposts"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    post_id: Mapped[int] = mapped_column(ForeignKey("posts.id", ondelete="CASCADE"))
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
+    created_at: Mapped[datetime] = mapped_column(TIMESTAMPTZ, server_default=func.now())
+
+    __table_args__ = (
+        UniqueConstraint("post_id", "user_id"),
+        Index("idx_post_reposts_post_id", "post_id"),
+    )
+
+
+class PostSave(Base):
+    __tablename__ = "post_saves"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    post_id: Mapped[int] = mapped_column(ForeignKey("posts.id", ondelete="CASCADE"))
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
+    created_at: Mapped[datetime] = mapped_column(TIMESTAMPTZ, server_default=func.now())
+
+    __table_args__ = (
+        UniqueConstraint("post_id", "user_id"),
+        Index("idx_post_saves_user_id", "user_id"),
+    )
+
+
+class PostView(Base):
+    __tablename__ = "post_views"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    post_id: Mapped[int] = mapped_column(ForeignKey("posts.id", ondelete="CASCADE"))
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
+    viewed_at: Mapped[datetime] = mapped_column(TIMESTAMPTZ, server_default=func.now())
+
+    __table_args__ = (
+        UniqueConstraint("post_id", "user_id"),
+        Index("idx_post_views_post_id", "post_id"),
     )

@@ -4,7 +4,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 
-from api.routers import admin, auth, chat, feedback, match_chat, matches, people, profile, views, voice
+from api.routers import admin, auth, chat, feed, feedback, match_chat, matches, people, profile, views, voice
 from core.config import settings
 from core.redis import close_redis
 from db.connection import engine
@@ -48,6 +48,77 @@ async def lifespan(app: FastAPI):
         """))
         await conn.execute(_sa.text("CREATE INDEX IF NOT EXISTS idx_profile_views_viewed_id ON profile_views (viewed_id, seen_at DESC)"))
         await conn.execute(_sa.text("CREATE INDEX IF NOT EXISTS idx_profile_views_viewer_id ON profile_views (viewer_id, seen_at DESC)"))
+
+        # ── Feed tables ──────────────────────────────────────────────────────
+        await conn.execute(_sa.text("""
+            CREATE TABLE IF NOT EXISTS posts (
+                id SERIAL PRIMARY KEY,
+                author_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+                is_bot_post BOOLEAN NOT NULL DEFAULT FALSE,
+                text TEXT,
+                media_key TEXT,
+                media_type VARCHAR(10),
+                hashtags JSONB DEFAULT '[]',
+                likes_count INTEGER NOT NULL DEFAULT 0,
+                comments_count INTEGER NOT NULL DEFAULT 0,
+                reposts_count INTEGER NOT NULL DEFAULT 0,
+                views_count INTEGER NOT NULL DEFAULT 0,
+                has_test BOOLEAN NOT NULL DEFAULT FALSE,
+                created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+                updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+            )
+        """))
+        await conn.execute(_sa.text("""
+            CREATE TABLE IF NOT EXISTS post_likes (
+                id SERIAL PRIMARY KEY,
+                post_id INTEGER NOT NULL REFERENCES posts(id) ON DELETE CASCADE,
+                user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+                UNIQUE(post_id, user_id)
+            )
+        """))
+        await conn.execute(_sa.text("""
+            CREATE TABLE IF NOT EXISTS post_comments (
+                id SERIAL PRIMARY KEY,
+                post_id INTEGER NOT NULL REFERENCES posts(id) ON DELETE CASCADE,
+                author_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                text TEXT NOT NULL,
+                created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+                updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+            )
+        """))
+        await conn.execute(_sa.text("""
+            CREATE TABLE IF NOT EXISTS post_reposts (
+                id SERIAL PRIMARY KEY,
+                post_id INTEGER NOT NULL REFERENCES posts(id) ON DELETE CASCADE,
+                user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+                UNIQUE(post_id, user_id)
+            )
+        """))
+        await conn.execute(_sa.text("""
+            CREATE TABLE IF NOT EXISTS post_saves (
+                id SERIAL PRIMARY KEY,
+                post_id INTEGER NOT NULL REFERENCES posts(id) ON DELETE CASCADE,
+                user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+                UNIQUE(post_id, user_id)
+            )
+        """))
+        await conn.execute(_sa.text("""
+            CREATE TABLE IF NOT EXISTS post_views (
+                id SERIAL PRIMARY KEY,
+                post_id INTEGER NOT NULL REFERENCES posts(id) ON DELETE CASCADE,
+                user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                viewed_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+                UNIQUE(post_id, user_id)
+            )
+        """))
+        await conn.execute(_sa.text("CREATE INDEX IF NOT EXISTS idx_posts_author_id ON posts (author_id)"))
+        await conn.execute(_sa.text("CREATE INDEX IF NOT EXISTS idx_posts_created_at ON posts (created_at DESC)"))
+        await conn.execute(_sa.text("CREATE INDEX IF NOT EXISTS idx_post_likes_post_id ON post_likes (post_id)"))
+        await conn.execute(_sa.text("CREATE INDEX IF NOT EXISTS idx_post_comments_post_id ON post_comments (post_id)"))
+        await conn.execute(_sa.text("CREATE INDEX IF NOT EXISTS idx_post_saves_user_id ON post_saves (user_id)"))
 
     # Set up Telegram bot webhook inside FastAPI
     if settings.BOT_TOKEN:
@@ -106,6 +177,7 @@ app.include_router(views.router)
 app.include_router(feedback.router)
 app.include_router(admin.router)
 app.include_router(people.router)
+app.include_router(feed.router)
 
 
 @app.post("/bot/webhook/{secret}")

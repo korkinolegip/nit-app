@@ -1,5 +1,5 @@
 interface MenuSheetProps {
-  onNavigate: (screen: 'discovery' | 'matches' | 'chats' | 'views' | 'profile') => void
+  onNavigate: (screen: 'feed' | 'discovery' | 'matches' | 'chats' | 'views' | 'profile') => void
   onClose: () => void
   badges?: {
     matches?: number
@@ -9,6 +9,17 @@ interface MenuSheetProps {
 }
 
 const menuItems = [
+  {
+    id: 'feed' as const,
+    label: 'Лента',
+    icon: (
+      <svg width="26" height="26" viewBox="0 0 24 24" fill="none">
+        <rect x="3" y="3" width="18" height="4" rx="1.5" stroke="currentColor" strokeWidth="1.5"/>
+        <rect x="3" y="10" width="11" height="4" rx="1.5" stroke="currentColor" strokeWidth="1.5"/>
+        <rect x="3" y="17" width="14" height="4" rx="1.5" stroke="currentColor" strokeWidth="1.5"/>
+      </svg>
+    ),
+  },
   {
     id: 'discovery' as const,
     label: 'Люди',
@@ -96,9 +107,9 @@ export default function MenuSheet({ onNavigate, onClose, badges = {} }: MenuShee
           margin: '12px auto 24px',
         }} />
 
-        {/* Items — 3 + 2 grid */}
+        {/* Items — 3 + 3 grid */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-          {/* Row 1: Люди, Матчи, Чаты */}
+          {/* Row 1: Лента, Люди, Матчи */}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12 }}>
             {menuItems.slice(0, 3).map(item => (
               <MenuButton
@@ -110,8 +121,8 @@ export default function MenuSheet({ onNavigate, onClose, badges = {} }: MenuShee
               />
             ))}
           </div>
-          {/* Row 2: Просмотры, Профиль */}
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 12 }}>
+          {/* Row 2: Чаты, Просмотры, Профиль */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12 }}>
             {menuItems.slice(3).map(item => (
               <MenuButton
                 key={item.id}

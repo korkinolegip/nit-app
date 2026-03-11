@@ -7,12 +7,13 @@ import Discovery from './screens/Discovery'
 import Profile from './screens/Profile'
 import Matches from './screens/Matches'
 import ProfileViews from './screens/ProfileViews'
+import Feed from './screens/Feed'
 import { initAuth } from './api/client'
 import { getChatStatus } from './api/chat'
 import { getMatches } from './api/matches'
 import { getViewsCount } from './api/views'
 
-type Screen = 'welcome' | 'chat' | 'matchChat' | 'discovery' | 'matches' | 'chats' | 'views' | 'profile'
+type Screen = 'welcome' | 'chat' | 'matchChat' | 'discovery' | 'matches' | 'chats' | 'views' | 'profile' | 'feed'
 
 interface Badges {
   matches: number
@@ -116,6 +117,7 @@ export default function App() {
       {screen === 'matches' && <Matches onBack={backToChat} onOpenChat={openMatchChat} />}
       {screen === 'chats' && <Matches onBack={backToChat} onOpenChat={openMatchChat} chatsOnly />}
       {screen === 'views' && <ProfileViews onBack={backToChat} onOpenMatch={openMatchChat} />}
+      {screen === 'feed' && <Feed onBack={backToChat} />}
     </>
   )
 }
