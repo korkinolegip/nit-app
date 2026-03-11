@@ -235,20 +235,20 @@ export default function Chat({ onOpenMatch, onNavigateTo, isReturning = false, s
             onClick={() => setIsNavOpen(true)}
             style={{
               position: 'relative',
-              width: '38px', height: '38px', borderRadius: '10px',
+              height: '32px', borderRadius: '10px',
               border: '1px solid var(--l)', display: 'flex',
               alignItems: 'center', justifyContent: 'center', cursor: 'pointer',
-              background: 'none',
+              background: 'none', padding: '0 12px',
+              fontSize: '12px', fontWeight: 600, letterSpacing: '.06em',
+              color: 'rgba(255,255,255,.55)', fontFamily: 'Inter',
             }}
           >
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
-              <path d="M3 12h18M3 6h18M3 18h18" stroke="rgba(255,255,255,.55)" strokeWidth="1.5" strokeLinecap="round"/>
-            </svg>
+            МЕНЮ
             {/* Badge: total unread */}
             {(badges.matches || 0) + (badges.chats || 0) + (badges.views || 0) > 0 && (
               <div style={{
-                position: 'absolute', top: 4, right: 4,
-                width: 8, height: 8, borderRadius: '50%',
+                position: 'absolute', top: 3, right: 3,
+                width: 7, height: 7, borderRadius: '50%',
                 background: '#ff4466',
               }} />
             )}

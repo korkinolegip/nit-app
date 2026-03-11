@@ -8,7 +8,7 @@ export default function Loader({ fullScreen = false }: { fullScreen?: boolean })
       background: fullScreen ? 'var(--bg)' : undefined,
     }}>
       {/* Thread + orb container */}
-      <div style={{ position: 'relative', width: 72, height: 72 }}>
+      <div style={{ position: 'relative', width: 216, height: 216 }}>
         {/* Threads */}
         {[
           { left: '42%', height: '85%', opacity: 0.75, anim: 'lsw1 3.8s ease-in-out infinite' },
