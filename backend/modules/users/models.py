@@ -496,6 +496,9 @@ class PostTest(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     post_id: Mapped[int] = mapped_column(ForeignKey("posts.id", ondelete="CASCADE"), unique=True)
+    template_id: Mapped[int | None] = mapped_column(
+        ForeignKey("test_templates.id", ondelete="SET NULL"), nullable=True, index=True
+    )
     title: Mapped[str] = mapped_column(Text, nullable=False)
     questions: Mapped[dict] = mapped_column(JSONB, default=list)
     result_mapping: Mapped[dict] = mapped_column(JSONB, default=dict)

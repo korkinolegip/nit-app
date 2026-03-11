@@ -276,6 +276,7 @@ async def bot_editor_task(ctx, force: bool = False):
         if test_data:
             pt = PostTest(
                 post_id=post.id,
+                template_id=template["id"] if template else None,
                 title=test_data["title"],
                 questions=test_data["questions"],
                 result_mapping=test_data["result_mapping"],
@@ -298,3 +299,4 @@ async def bot_editor_task(ctx, force: bool = False):
             f"bot_editor_task: published post {post.id} "
             f"(format: {chosen_format}, has_test: {bool(test_data)})"
         )
+        return post.id

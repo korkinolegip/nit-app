@@ -1245,10 +1245,10 @@ async def admin_trigger_bot_post(
 ):
     try:
         from workers.tasks.bot_editor import bot_editor_task
-        await bot_editor_task(ctx=None, force=True)
+        post_id = await bot_editor_task(ctx=None, force=True)
     except Exception as e:
         raise HTTPException(500, f"Bot post failed: {e}")
-    return {"success": True}
+    return {"success": True, "post_id": post_id}
 
 
 @router.get("/test-templates")
@@ -1261,7 +1261,7 @@ async def admin_test_templates(
                tt.used_count, tt.last_used_at, tt.base_questions,
                COALESCE(COUNT(ptr.id), 0) AS completions_count
         FROM test_templates tt
-        LEFT JOIN post_tests pt ON pt.title = tt.title
+        LEFT JOIN post_tests pt ON pt.template_id = tt.id
         LEFT JOIN post_test_results ptr ON ptr.test_id = pt.id
         GROUP BY tt.id
         ORDER BY tt.id
@@ -1293,10 +1293,14 @@ async def admin_test_results(
     r = await db.execute(text("""
         SELECT ptr.id, ptr.result_key, ptr.completed_at,
                u.name AS user_name, u.id AS user_id,
-               pt.title AS test_title
+               pt.title AS test_title,
+               ph.storage_key AS avatar_key
         FROM post_test_results ptr
         JOIN users u ON u.id = ptr.user_id
         JOIN post_tests pt ON pt.id = ptr.test_id
+        LEFT JOIN photos ph ON ph.user_id = u.id
+            AND ph.moderation_status = 'approved'
+            AND ph.is_primary = true
         ORDER BY ptr.completed_at DESC
         LIMIT :limit OFFSET :offset
     """), {"limit": limit, "offset": offset})
@@ -1306,15 +1310,8 @@ async def admin_test_results(
     for row in rows:
         avatar_url = ""
         try:
-            ph_res = await db.execute(
-                select(Photo).where(
-                    Photo.user_id == row["user_id"],
-                    Photo.moderation_status == "approved",
-                ).order_by(Photo.is_primary.desc()).limit(1)
-            )
-            ph = ph_res.scalar_one_or_none()
-            if ph:
-                avatar_url = await get_photo_signed_url(ph.storage_key)
+            if row["avatar_key"]:
+                avatar_url = await get_photo_signed_url(row["avatar_key"])
         except Exception:
             pass
         items.append({
