@@ -304,7 +304,7 @@ async def trigger_matching_all(
     return {"total_matches_created": total, "details": details}
 
 
-@router.get("/users")
+@router.get("/users-debug")
 async def list_users(
     secret: str = Query(...),
     db: AsyncSession = Depends(get_db),

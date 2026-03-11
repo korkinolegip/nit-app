@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { apiRequest } from '../api/client'
 
 const API = import.meta.env.VITE_API_URL || 'http://localhost:8000'
@@ -44,37 +44,101 @@ const dangerBtn: React.CSSProperties = {
 
 // ── Dashboard tab ─────────────────────────────────────────────────────────────
 
-function Dashboard() {
+function MetricCard({ label, val, onClick }: { label: string; val: number; onClick: () => void }) {
+  const [pressed, setPressed] = useState(false)
+  const [hovered, setHovered] = useState(false)
+  return (
+    <div
+      onClick={onClick}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => { setHovered(false); setPressed(false) }}
+      onMouseDown={() => setPressed(true)}
+      onMouseUp={() => setPressed(false)}
+      onTouchStart={() => setPressed(true)}
+      onTouchEnd={() => setPressed(false)}
+      style={{
+        ...card,
+        cursor: 'pointer',
+        transition: 'opacity 0.1s, transform 0.1s',
+        opacity: pressed ? 0.55 : hovered ? 0.8 : 1,
+        transform: pressed ? 'scale(0.97)' : 'scale(1)',
+        userSelect: 'none',
+      }}
+    >
+      <div style={{ fontSize: 22, fontWeight: 700, color: 'var(--w)' }}>{val}</div>
+      <div style={{ fontSize: 12, color: 'var(--d3)', marginTop: 3 }}>{label}</div>
+    </div>
+  )
+}
+
+function Dashboard({ onNavigate }: { onNavigate: (tab: Tab) => void }) {
   const [stats, setStats] = useState<Record<string, number> | null>(null)
+  const [recentUsers, setRecentUsers] = useState<any[]>([])
+  const [recentPressed, setRecentPressed] = useState(false)
+  const [recentHovered, setRecentHovered] = useState(false)
 
   useEffect(() => {
     adminGet('/stats').then((r: any) => setStats(r)).catch(() => {})
+    adminGet('/users?limit=5').then((r: any) => setRecentUsers(r.users || [])).catch(() => {})
   }, [])
 
   if (!stats) return <div style={{ color: 'var(--d3)', padding: 20 }}>Загрузка...</div>
 
-  const items = [
-    { label: 'Всего пользователей', val: stats.total_users },
-    { label: 'Активных', val: stats.active_users },
-    { label: 'Заблокировано', val: stats.banned_users + stats.blocked_users },
-    { label: 'Матчей', val: stats.total_matches },
-    { label: 'Принятых матчей', val: stats.accepted_matches },
-    { label: 'Постов (пользователи)', val: stats.user_posts },
-    { label: 'Постов (бот)', val: stats.bot_posts },
-    { label: 'Комментариев', val: stats.total_comments },
-    { label: 'Черновиков на проверке', val: stats.pending_drafts },
+  const items: { label: string; val: number; tab: Tab }[] = [
+    { label: 'Всего пользователей', val: stats.total_users, tab: 'users' },
+    { label: 'Активных', val: stats.active_users, tab: 'users' },
+    { label: 'Заблокировано', val: stats.banned_users + stats.blocked_users, tab: 'users' },
+    { label: 'Матчей', val: stats.total_matches, tab: 'matches' },
+    { label: 'Принятых матчей', val: stats.accepted_matches, tab: 'matches' },
+    { label: 'Постов (пользователи)', val: stats.user_posts, tab: 'content' },
+    { label: 'Постов (бот)', val: stats.bot_posts, tab: 'content' },
+    { label: 'Комментариев', val: stats.total_comments, tab: 'content' },
+    { label: 'Черновиков на проверке', val: stats.pending_drafts, tab: 'drafts' },
   ]
 
   return (
     <div style={{ padding: '0 16px 24px' }}>
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginTop: 16 }}>
-        {items.map(({ label, val }) => (
-          <div key={label} style={card}>
-            <div style={{ fontSize: 22, fontWeight: 700, color: 'var(--w)' }}>{val}</div>
-            <div style={{ fontSize: 12, color: 'var(--d3)', marginTop: 3 }}>{label}</div>
-          </div>
+        {items.map(({ label, val, tab }) => (
+          <MetricCard key={label} label={label} val={val} onClick={() => onNavigate(tab)} />
         ))}
       </div>
+
+      {/* Recent registrations */}
+      {recentUsers.length > 0 && (
+        <div
+          onClick={() => onNavigate('users')}
+          onMouseEnter={() => setRecentHovered(true)}
+          onMouseLeave={() => { setRecentHovered(false); setRecentPressed(false) }}
+          onMouseDown={() => setRecentPressed(true)}
+          onMouseUp={() => setRecentPressed(false)}
+          onTouchStart={() => setRecentPressed(true)}
+          onTouchEnd={() => setRecentPressed(false)}
+          style={{
+            ...card,
+            marginTop: 6,
+            cursor: 'pointer',
+            transition: 'opacity 0.1s, transform 0.1s',
+            opacity: recentPressed ? 0.55 : recentHovered ? 0.8 : 1,
+            transform: recentPressed ? 'scale(0.97)' : 'scale(1)',
+            userSelect: 'none',
+          }}
+        >
+          <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--d3)', marginBottom: 10, letterSpacing: '.04em' }}>
+            ПОСЛЕДНИЕ РЕГИСТРАЦИИ →
+          </div>
+          {recentUsers.map(u => (
+            <div key={u.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingBottom: 7, marginBottom: 7, borderBottom: '1px solid var(--l)' }}>
+              <div style={{ fontSize: 13, color: 'var(--d1)', fontWeight: 500 }}>
+                {u.name || '—'}{u.age ? `, ${u.age}` : ''}
+              </div>
+              <div style={{ fontSize: 11, color: 'var(--d4)' }}>
+                {u.city || ''}{u.city && u.created_at ? ' · ' : ''}{u.created_at ? new Date(u.created_at).toLocaleDateString('ru') : ''}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   )
 }
@@ -214,6 +278,7 @@ function Users() {
   const [users, setUsers] = useState<any[]>([])
   const [search, setSearch] = useState('')
   const [loading, setLoading] = useState(false)
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const load = useCallback(async (q = '') => {
     setLoading(true)
@@ -224,6 +289,12 @@ function Users() {
   }, [])
 
   useEffect(() => { load() }, [load])
+
+  const handleSearchChange = (value: string) => {
+    setSearch(value)
+    if (debounceRef.current) clearTimeout(debounceRef.current)
+    debounceRef.current = setTimeout(() => load(value), 300)
+  }
 
   const block = async (id: number) => {
     await adminPost(`/users/${id}/block`)
@@ -241,19 +312,18 @@ function Users() {
 
   return (
     <div style={{ padding: '0 16px 24px' }}>
-      <div style={{ marginTop: 16, marginBottom: 12, display: 'flex', gap: 8 }}>
+      <div style={{ marginTop: 16, marginBottom: 12 }}>
         <input
           value={search}
-          onChange={e => setSearch(e.target.value)}
-          onKeyDown={e => e.key === 'Enter' && load(search)}
+          onChange={e => handleSearchChange(e.target.value)}
           placeholder="Поиск по имени..."
           style={{
-            flex: 1, padding: '9px 12px', borderRadius: 10,
+            width: '100%', padding: '9px 12px', borderRadius: 10,
             border: '1px solid var(--l)', background: 'var(--bg3)',
             color: 'var(--w)', fontSize: 13, fontFamily: 'Inter',
+            boxSizing: 'border-box',
           }}
         />
-        <button onClick={() => load(search)} style={btn(true)}>Найти</button>
       </div>
 
       {loading && <div style={{ color: 'var(--d3)', textAlign: 'center', padding: 20 }}>Загрузка...</div>}
@@ -500,7 +570,7 @@ export default function Admin({ onBack }: AdminProps) {
 
       {/* Tab content */}
       <div style={{ flex: 1, overflowY: 'auto' }}>
-        {activeTab === 'dashboard' && <Dashboard />}
+        {activeTab === 'dashboard' && <Dashboard onNavigate={setActiveTab} />}
         {activeTab === 'drafts' && <Drafts />}
         {activeTab === 'users' && <Users />}
         {activeTab === 'matches' && <MatchesTab />}
