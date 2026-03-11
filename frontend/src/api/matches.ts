@@ -192,3 +192,7 @@ export interface DirectLikeResponse {
 export async function likeUser(userId: number): Promise<DirectLikeResponse> {
   return apiRequest(`/api/matches/like-user/${userId}`, { method: 'POST' })
 }
+
+export async function saveProfile(targetUserId: number): Promise<{ ok: boolean }> {
+  return apiRequest(`/api/users/${targetUserId}/save-profile`, { method: 'POST' })
+}

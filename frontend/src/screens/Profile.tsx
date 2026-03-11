@@ -428,7 +428,7 @@ export default function Profile({ onBack, onGoToChat }: ProfileProps) {
                   <div style={{
                     height: '100%', borderRadius: 4,
                     width: `${profile.profile_completeness_pct}%`,
-                    background: profile.profile_completeness_pct >= 70 ? '#22c55e' : profile.profile_completeness_pct >= 40 ? '#f59e0b' : 'var(--d3)',
+                    background: profile.profile_completeness_pct >= 90 ? '#22c55e' : profile.profile_completeness_pct >= 70 ? '#3b82f6' : profile.profile_completeness_pct >= 40 ? '#f59e0b' : 'var(--d3)',
                     transition: 'width 0.4s ease',
                   }} />
                 </div>

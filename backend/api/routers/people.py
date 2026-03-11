@@ -1,7 +1,7 @@
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends
-from sqlalchemy import and_, or_, select
+from sqlalchemy import and_, or_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.middleware.auth import get_current_user
@@ -141,3 +141,36 @@ async def get_people(
         })
 
     return {"matches": people[offset: offset + limit], "total": len(people)}
+
+
+@router.post("/{target_id}/save-profile")
+async def save_profile(
+    target_id: int,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Save a profile for later review (barrier: current user's completeness too low)."""
+    await db.execute(
+        text("""
+            INSERT INTO saved_profiles (user_id, target_id)
+            VALUES (:user_id, :target_id)
+            ON CONFLICT (user_id, target_id) DO NOTHING
+        """),
+        {"user_id": user.id, "target_id": target_id},
+    )
+    await db.commit()
+    return {"ok": True}
+
+
+@router.delete("/{target_id}/save-profile")
+async def unsave_profile(
+    target_id: int,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    await db.execute(
+        text("DELETE FROM saved_profiles WHERE user_id = :user_id AND target_id = :target_id"),
+        {"user_id": user.id, "target_id": target_id},
+    )
+    await db.commit()
+    return {"ok": True}

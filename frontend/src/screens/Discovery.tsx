@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { getPeople, matchAction, restoreSkip, Match, PeopleFilters, DEFAULT_PEOPLE_FILTERS } from '../api/matches'
+import { getPeople, matchAction, restoreSkip, saveProfile, Match, PeopleFilters, DEFAULT_PEOPLE_FILTERS } from '../api/matches'
 import Loader from '../components/Loader'
 
 interface DiscoveryProps {
@@ -45,7 +45,7 @@ export default function Discovery({ onBack, onOpenChat, onGoToChat }: DiscoveryP
   const [filters, setFilters] = useState<PeopleFilters>(loadFilters)
   const [showFilters, setShowFilters] = useState(false)
   const [barrierInfo, setBarrierInfo] = useState<{
-    target_name: string; current_pct: number; target_pct: number; missing_patterns: string[]
+    target_user_id: number; target_name: string; current_pct: number; target_pct: number; missing_patterns: string[]
   } | null>(null)
   const touchStartX = useRef(0)
   const touchStartY = useRef(0)
@@ -87,6 +87,7 @@ export default function Discovery({ onBack, onOpenChat, onGoToChat }: DiscoveryP
       const res = await matchAction(current.match_id, action) as any
       if (res.blocked) {
         setBarrierInfo({
+          target_user_id: current.partner_user_id,
           target_name: res.target_name || current.user.name,
           current_pct: res.current_pct || 0,
           target_pct: res.target_pct || 0,
@@ -466,6 +467,10 @@ export default function Discovery({ onBack, onOpenChat, onGoToChat }: DiscoveryP
         <BarrierSheet
           info={barrierInfo}
           onClose={() => setBarrierInfo(null)}
+          onSave={async () => {
+            try { await saveProfile(barrierInfo.target_user_id) } catch {}
+            setBarrierInfo(null)
+          }}
           onGoToChat={() => { setBarrierInfo(null); onGoToChat?.() }}
         />
       )}
@@ -931,9 +936,10 @@ function attachmentLabel(hint: string): string {
   return map[hint] || hint
 }
 
-function BarrierSheet({ info, onClose, onGoToChat }: {
+function BarrierSheet({ info, onClose, onSave, onGoToChat }: {
   info: { target_name: string; current_pct: number; target_pct: number; missing_patterns: string[] }
   onClose: () => void
+  onSave: () => void
   onGoToChat: () => void
 }) {
   return (
@@ -980,28 +986,40 @@ function BarrierSheet({ info, onClose, onGoToChat }: {
           Расскажи больше о себе — Нить найдёт точки совпадения
         </div>
 
+        <button
+          onClick={onGoToChat}
+          style={{
+            width: '100%', padding: '14px', background: 'var(--w)',
+            border: 'none', borderRadius: 13, marginBottom: 10,
+            color: 'var(--bg)', fontSize: 14, fontWeight: 600,
+            cursor: 'pointer', fontFamily: 'Inter',
+          }}
+        >
+          Дополнить профиль →
+        </button>
+
         <div style={{ display: 'flex', gap: 10 }}>
+          <button
+            onClick={onSave}
+            style={{
+              flex: 1, padding: '13px', background: 'none',
+              border: '1px solid var(--l)', borderRadius: 13,
+              color: 'var(--d2)', fontSize: 13, fontWeight: 500,
+              cursor: 'pointer', fontFamily: 'Inter',
+            }}
+          >
+            Сохранить пока
+          </button>
           <button
             onClick={onClose}
             style={{
-              flex: 1, padding: '14px', background: 'none',
+              flex: 1, padding: '13px', background: 'none',
               border: '1px solid var(--l)', borderRadius: 13,
-              color: 'var(--d2)', fontSize: 14, fontWeight: 500,
+              color: 'var(--d3)', fontSize: 13, fontWeight: 400,
               cursor: 'pointer', fontFamily: 'Inter',
             }}
           >
             Пропустить
-          </button>
-          <button
-            onClick={onGoToChat}
-            style={{
-              flex: 2, padding: '14px', background: 'var(--w)',
-              border: 'none', borderRadius: 13,
-              color: 'var(--bg)', fontSize: 14, fontWeight: 600,
-              cursor: 'pointer', fontFamily: 'Inter',
-            }}
-          >
-            Дополнить профиль →
           </button>
         </div>
       </div>
