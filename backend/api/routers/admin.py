@@ -484,13 +484,13 @@ async def admin_get_user(
     # Photos with signed URLs
     photos_res = await db.execute(
         select(Photo).where(Photo.user_id == u.id, Photo.moderation_status == "approved")
-        .order_by(Photo.position)
+        .order_by(Photo.sort_order)
     )
     photos = []
     for p in photos_res.scalars().all():
         try:
             url = await get_photo_signed_url(p.storage_key)
-            photos.append({"id": p.id, "url": url, "position": p.position})
+            photos.append({"id": p.id, "url": url, "position": p.sort_order})
         except Exception:
             pass
 
