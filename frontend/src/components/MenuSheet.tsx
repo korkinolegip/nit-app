@@ -116,7 +116,7 @@ export default function MenuSheet({ onNavigate, onClose, badges = {} }: MenuShee
           margin: '12px auto 24px',
         }} />
 
-        {/* Items — 3 + 4 grid */}
+        {/* Items — 3 + 2 + 2 grid */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
           {/* Row 1: Лента, Люди, Матчи */}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12 }}>
@@ -130,9 +130,21 @@ export default function MenuSheet({ onNavigate, onClose, badges = {} }: MenuShee
               />
             ))}
           </div>
-          {/* Row 2: Чаты, Просмотры, Профиль, Отложенные */}
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12 }}>
-            {menuItems.slice(3).map(item => (
+          {/* Row 2: Чаты, Просмотры */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 12 }}>
+            {menuItems.slice(3, 5).map(item => (
+              <MenuButton
+                key={item.id}
+                item={item}
+                badge={badges[item.id as keyof typeof badges]}
+                onNavigate={onNavigate}
+                onClose={onClose}
+              />
+            ))}
+          </div>
+          {/* Row 3: Профиль, Отложенные */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 12 }}>
+            {menuItems.slice(5).map(item => (
               <MenuButton
                 key={item.id}
                 item={item}
