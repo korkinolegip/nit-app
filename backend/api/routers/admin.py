@@ -363,28 +363,23 @@ async def wipe_all_users(
 
 
 @router.patch("/users/{user_id}")
-async def patch_user(
+async def admin_patch_user(
     user_id: int,
-    secret: str = Query(...),
+    body: "AdminUserPatch",
+    admin: User = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
-    partner_preference: str | None = None,
-    goal: str | None = None,
-    is_active: bool | None = None,
 ):
-    """Patch user fields for debugging/fixing data."""
-    if secret != settings.WEBHOOK_SECRET:
-        raise HTTPException(403, "Invalid secret")
-    user = await db.get(User, user_id)
-    if not user:
+    u = await db.get(User, user_id)
+    if not u:
         raise HTTPException(404, "User not found")
-    if partner_preference is not None:
-        user.partner_preference = partner_preference
-    if goal is not None:
-        user.goal = goal
-    if is_active is not None:
-        user.is_active = is_active
+    for field in ("name", "age", "city", "occupation", "goal", "partner_preference",
+                  "is_active", "is_admin", "is_blocked", "is_banned"):
+        val = getattr(body, field, None)
+        if val is not None:
+            setattr(u, field, val)
     await db.commit()
-    return {"ok": True, "user_id": user_id, "partner_preference": user.partner_preference, "goal": user.goal}
+    await db.refresh(u)
+    return {"ok": True}
 
 
 # ── require_admin dependency (DB flag) ───────────────────────────────────────
@@ -413,6 +408,18 @@ class DraftCreateRequest(BaseModel):
 class DraftPatchRequest(BaseModel):
     generated_text: str | None = None
     status: str | None = None
+
+class AdminUserPatch(BaseModel):
+    name: str | None = None
+    age: int | None = None
+    city: str | None = None
+    occupation: str | None = None
+    goal: str | None = None
+    partner_preference: str | None = None
+    is_active: bool | None = None
+    is_admin: bool | None = None
+    is_blocked: bool | None = None
+    is_banned: bool | None = None
 
 
 # ── Dashboard stats ───────────────────────────────────────────────────────────
@@ -479,17 +486,73 @@ async def admin_get_user(
     u = await db.get(User, user_id)
     if not u:
         raise HTTPException(404, "User not found")
+
+    # Photos with signed URLs
+    photos_res = await db.execute(
+        select(Photo).where(Photo.user_id == u.id, Photo.moderation_status == "approved")
+        .order_by(Photo.position)
+    )
+    photos = []
+    for p in photos_res.scalars().all():
+        try:
+            url = await get_photo_signed_url(p.storage_key)
+            photos.append({"id": p.id, "url": url, "position": p.position})
+        except Exception:
+            pass
+
+    posts_count_res = await db.execute(
+        text("SELECT COUNT(*) FROM posts WHERE author_id = :uid"), {"uid": u.id}
+    )
+    posts_count = posts_count_res.scalar() or 0
+
+    try:
+        from api.routers.matches import _compute_completeness
+        pct, filled, missing = _compute_completeness(u)
+    except Exception:
+        pct, filled, missing = 0, [], []
+
     return {
         "id": u.id, "name": u.name, "age": u.age, "city": u.city,
         "gender": u.gender, "goal": u.goal, "occupation": u.occupation,
+        "partner_preference": u.partner_preference,
         "telegram_id": u.telegram_id,
         "is_active": u.is_active, "is_banned": u.is_banned,
         "is_blocked": getattr(u, "is_blocked", False),
         "is_admin": getattr(u, "is_admin", False),
+        "is_bot_editor": getattr(u, "is_bot_editor", False),
         "onboarding_step": u.onboarding_step,
         "profile_text": u.profile_text,
+        "personality_type": u.personality_type,
+        "profile_completeness_pct": pct,
+        "filled_patterns": filled,
+        "missing_patterns": missing,
+        "posts_count": posts_count,
+        "photos": photos,
+        "created_at": u.created_at.isoformat() if getattr(u, "created_at", None) else None,
         "last_seen": u.last_seen.isoformat() if u.last_seen else None,
     }
+
+
+@router.get("/users/{user_id}/posts")
+async def admin_get_user_posts(
+    user_id: int,
+    limit: int = 20,
+    admin: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    res = await db.execute(
+        select(Post).where(Post.author_id == user_id).order_by(Post.id.desc()).limit(limit)
+    )
+    posts = res.scalars().all()
+    return {"posts": [
+        {
+            "id": p.id, "text": (p.text or "")[:300], "hashtags": p.hashtags,
+            "likes_count": p.likes_count, "comments_count": p.comments_count,
+            "has_test": p.has_test, "is_bot_post": p.is_bot_post,
+            "created_at": p.created_at.isoformat(),
+        }
+        for p in posts
+    ]}
 
 
 @router.post("/users/{user_id}/block")
@@ -544,18 +607,30 @@ async def admin_list_matches(
     db: AsyncSession = Depends(get_db),
 ):
     result = await db.execute(
-        select(Match).order_by(Match.id.desc()).offset(offset).limit(limit)
+        text("""
+            SELECT m.id, m.user1_id, m.user2_id, m.status, m.chat_status,
+                   m.compatibility_score, m.created_at, m.matched_at,
+                   u1.name AS user1_name, u2.name AS user2_name
+            FROM matches m
+            LEFT JOIN users u1 ON u1.id = m.user1_id
+            LEFT JOIN users u2 ON u2.id = m.user2_id
+            ORDER BY m.id DESC
+            OFFSET :offset LIMIT :limit
+        """),
+        {"offset": offset, "limit": limit}
     )
-    matches = result.scalars().all()
+    rows = result.mappings().all()
     return {"matches": [
         {
-            "id": m.id, "user1_id": m.user1_id, "user2_id": m.user2_id,
-            "status": m.status, "chat_status": m.chat_status,
-            "compatibility_score": m.compatibility_score,
-            "created_at": m.created_at.isoformat(),
-            "matched_at": m.matched_at.isoformat() if m.matched_at else None,
+            "id": r["id"], "user1_id": r["user1_id"], "user2_id": r["user2_id"],
+            "user1_name": r["user1_name"] or f"#{r['user1_id']}",
+            "user2_name": r["user2_name"] or f"#{r['user2_id']}",
+            "status": r["status"], "chat_status": r["chat_status"],
+            "compatibility_score": r["compatibility_score"],
+            "created_at": r["created_at"].isoformat(),
+            "matched_at": r["matched_at"].isoformat() if r["matched_at"] else None,
         }
-        for m in matches
+        for r in rows
     ]}
 
 

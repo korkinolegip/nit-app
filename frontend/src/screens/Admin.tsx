@@ -278,14 +278,22 @@ function Users() {
   const [users, setUsers] = useState<any[]>([])
   const [search, setSearch] = useState('')
   const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [selectedId, setSelectedId] = useState<number | null>(null)
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const load = useCallback(async (q = '') => {
     setLoading(true)
+    setError(null)
     try {
       const r: any = await adminGet(`/users?limit=50${q ? `&search=${encodeURIComponent(q)}` : ''}`)
-      setUsers(r.users)
-    } catch { /* ignore */ } finally { setLoading(false) }
+      setUsers(r.users ?? [])
+    } catch (e: any) {
+      console.error('[Admin/Users] load failed:', e)
+      setError(String(e?.message ?? e))
+    } finally {
+      setLoading(false)
+    }
   }, [])
 
   useEffect(() => { load() }, [load])
@@ -297,17 +305,27 @@ function Users() {
   }
 
   const block = async (id: number) => {
-    await adminPost(`/users/${id}/block`)
+    try { await adminPost(`/users/${id}/block`) } catch (e) { console.error(e) }
     load(search)
   }
   const unblock = async (id: number) => {
-    await adminPost(`/users/${id}/unblock`)
+    try { await adminPost(`/users/${id}/unblock`) } catch (e) { console.error(e) }
     load(search)
   }
   const del = async (id: number) => {
     if (!confirm('Удалить пользователя?')) return
-    await adminDelete(`/users/${id}`)
+    try { await adminDelete(`/users/${id}`) } catch (e) { console.error(e) }
     load(search)
+  }
+
+  if (selectedId !== null) {
+    return (
+      <UserDetail
+        userId={selectedId}
+        onClose={() => setSelectedId(null)}
+        onDeleted={() => { setSelectedId(null); load(search) }}
+      />
+    )
   }
 
   return (
@@ -328,35 +346,317 @@ function Users() {
 
       {loading && <div style={{ color: 'var(--d3)', textAlign: 'center', padding: 20 }}>Загрузка...</div>}
 
+      {error && (
+        <div style={{
+          background: 'rgba(255,60,60,0.12)', border: '1px solid rgba(255,60,60,0.3)',
+          borderRadius: 10, padding: '12px 14px', marginBottom: 12,
+          fontSize: 12, color: '#ff6060', lineHeight: 1.5,
+        }}>
+          <div style={{ fontWeight: 600, marginBottom: 4 }}>Ошибка загрузки</div>
+          <div style={{ wordBreak: 'break-all' }}>{error}</div>
+          <button onClick={() => load(search)} style={{ ...btn(), marginTop: 8, fontSize: 11 }}>
+            Повторить
+          </button>
+        </div>
+      )}
+
+      {!loading && !error && users.length === 0 && (
+        <div style={{ color: 'var(--d3)', textAlign: 'center', padding: 30 }}>Нет пользователей</div>
+      )}
+
       {users.map(u => (
-        <div key={u.id} style={card}>
+        <div
+          key={u.id}
+          onClick={() => setSelectedId(u.id)}
+          style={{ ...card, cursor: 'pointer', transition: 'opacity 0.1s' }}
+          onMouseEnter={e => (e.currentTarget.style.opacity = '0.75')}
+          onMouseLeave={e => (e.currentTarget.style.opacity = '1')}
+        >
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-            <div>
+            <div style={{ flex: 1, minWidth: 0 }}>
               <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--w)' }}>
                 {u.name || '—'} {u.age ? `· ${u.age}` : ''} {u.city ? `· ${u.city}` : ''}
               </div>
               <div style={{ fontSize: 11, color: 'var(--d3)', marginTop: 2 }}>
-                ID: {u.id} · TG: {u.telegram_id} · {u.onboarding_step}
+                ID: {u.id} · {u.onboarding_step}
                 {u.is_admin && <span style={{ color: '#7B5EFF', marginLeft: 6 }}>ADMIN</span>}
-                {u.is_banned && <span style={{ color: '#ff4466', marginLeft: 6 }}>BANNED</span>}
+                {u.is_banned && <span style={{ color: '#ff4466', marginLeft: 6 }}>BAN</span>}
                 {u.is_blocked && <span style={{ color: '#f08020', marginLeft: 6 }}>BLOCKED</span>}
               </div>
               {u.last_seen && (
                 <div style={{ fontSize: 11, color: 'var(--d4)', marginTop: 2 }}>
-                  Был: {new Date(u.last_seen).toLocaleString('ru')}
+                  {new Date(u.last_seen).toLocaleString('ru')}
                 </div>
               )}
             </div>
-            <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
-              {u.is_blocked
-                ? <button onClick={() => unblock(u.id)} style={btn()}>Разблок</button>
-                : <button onClick={() => block(u.id)} style={{ ...btn(), color: '#f08020' }}>Блок</button>
-              }
-              <button onClick={() => del(u.id)} style={dangerBtn}>✕</button>
-            </div>
+            <div style={{ color: 'var(--d3)', fontSize: 18, marginLeft: 8 }}>›</div>
           </div>
         </div>
       ))}
+    </div>
+  )
+}
+
+// ── User Detail panel ─────────────────────────────────────────────────────────
+
+function UserDetail({ userId, onClose, onDeleted }: {
+  userId: number
+  onClose: () => void
+  onDeleted: () => void
+}) {
+  const [user, setUser] = useState<any>(null)
+  const [posts, setPosts] = useState<any[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  const [editing, setEditing] = useState(false)
+  const [editData, setEditData] = useState<Record<string, any>>({})
+  const [saving, setSaving] = useState(false)
+
+  const reload = useCallback(async () => {
+    setLoading(true)
+    setError(null)
+    try {
+      const [u, p] = await Promise.all([
+        adminGet(`/users/${userId}`),
+        adminGet(`/users/${userId}/posts`),
+      ])
+      setUser(u)
+      setEditData({
+        name: (u as any).name || '',
+        age: (u as any).age || '',
+        city: (u as any).city || '',
+        occupation: (u as any).occupation || '',
+        goal: (u as any).goal || '',
+        partner_preference: (u as any).partner_preference || '',
+      })
+      setPosts((p as any).posts || [])
+    } catch (e: any) {
+      setError(String(e?.message ?? e))
+    } finally {
+      setLoading(false)
+    }
+  }, [userId])
+
+  useEffect(() => { reload() }, [reload])
+
+  const save = async () => {
+    setSaving(true)
+    try {
+      await adminPatch(`/users/${userId}`, editData)
+      await reload()
+      setEditing(false)
+    } catch (e: any) {
+      alert('Ошибка: ' + String(e?.message ?? e))
+    } finally { setSaving(false) }
+  }
+
+  const toggleFlag = async (flag: string, val: boolean) => {
+    try {
+      await adminPatch(`/users/${userId}`, { [flag]: val })
+      setUser((u: any) => ({ ...u, [flag]: val }))
+    } catch (e: any) { alert('Ошибка: ' + String(e?.message ?? e)) }
+  }
+
+  const runMatching = async () => {
+    try {
+      await adminPost(`/run-matching/${userId}`)
+      alert('Матчинг запущен')
+    } catch (e: any) { alert('Ошибка: ' + String(e?.message ?? e)) }
+  }
+
+  const deleteUser = async () => {
+    if (!confirm(`Удалить пользователя ${user?.name} навсегда?`)) return
+    try {
+      await adminDelete(`/users/${userId}`)
+      onDeleted()
+    } catch (e: any) { alert('Ошибка: ' + String(e?.message ?? e)) }
+  }
+
+  const deletePost = async (postId: number) => {
+    if (!confirm('Удалить пост?')) return
+    try {
+      await adminDelete(`/posts/${postId}`)
+      setPosts(p => p.filter(x => x.id !== postId))
+    } catch (e: any) { alert('Ошибка: ' + String(e?.message ?? e)) }
+  }
+
+  const inputStyle: React.CSSProperties = {
+    width: '100%', padding: '8px 10px', borderRadius: 8,
+    border: '1px solid var(--l)', background: 'var(--bg3)',
+    color: 'var(--w)', fontSize: 13, fontFamily: 'Inter',
+    boxSizing: 'border-box',
+  }
+
+  const FlagToggle = ({ flag, label, color = '#7B5EFF' }: { flag: string; label: string; color?: string }) => {
+    const val = user?.[flag]
+    return (
+      <div
+        onClick={() => toggleFlag(flag, !val)}
+        style={{
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+          padding: '10px 0', borderBottom: '1px solid var(--l)', cursor: 'pointer',
+        }}
+      >
+        <span style={{ fontSize: 13, color: val ? color : 'var(--d2)' }}>{label}</span>
+        <div style={{
+          width: 38, height: 22, borderRadius: 11,
+          background: val ? color : 'var(--bg3)',
+          border: '1px solid var(--l)', position: 'relative', transition: 'background 0.2s',
+        }}>
+          <div style={{
+            position: 'absolute', top: 2,
+            left: val ? 17 : 2,
+            width: 16, height: 16, borderRadius: 8,
+            background: 'var(--w)', transition: 'left 0.2s',
+          }} />
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <div style={{
+      position: 'absolute', inset: 0, background: 'var(--bg)', zIndex: 10,
+      display: 'flex', flexDirection: 'column', overflowY: 'auto',
+    }}>
+      {/* Header */}
+      <div style={{
+        display: 'flex', alignItems: 'center', gap: 10,
+        padding: '12px 16px', borderBottom: '1px solid var(--l)',
+        position: 'sticky', top: 0, background: 'var(--bg)', zIndex: 1, flexShrink: 0,
+      }}>
+        <button onClick={onClose} style={{ background: 'none', border: 'none', color: 'var(--d2)', fontSize: 22, cursor: 'pointer', padding: 0 }}>←</button>
+        <div style={{ flex: 1 }}>
+          <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--w)' }}>
+            {user?.name || '—'}
+          </div>
+          <div style={{ fontSize: 11, color: 'var(--d4)' }}>ID: {userId}</div>
+        </div>
+        {!editing && (
+          <button onClick={() => setEditing(true)} style={btn()}>Редактировать</button>
+        )}
+      </div>
+
+      {loading && <div style={{ color: 'var(--d3)', padding: 24, textAlign: 'center' }}>Загрузка...</div>}
+      {error && <div style={{ color: '#ff6060', padding: 16, fontSize: 12 }}>{error}</div>}
+
+      {user && (
+        <div style={{ padding: '0 16px 32px' }}>
+
+          {/* Photos */}
+          {user.photos?.length > 0 && (
+            <div style={{ display: 'flex', gap: 8, overflowX: 'auto', padding: '12px 0', scrollbarWidth: 'none' }}>
+              {user.photos.map((ph: any) => (
+                <img key={ph.id} src={ph.url} alt="" style={{
+                  width: 80, height: 80, objectFit: 'cover',
+                  borderRadius: 10, flexShrink: 0, border: '1px solid var(--l)',
+                }} />
+              ))}
+            </div>
+          )}
+
+          {/* Edit form */}
+          {editing ? (
+            <div style={{ ...card, marginTop: 12 }}>
+              <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--d3)', marginBottom: 10, letterSpacing: '.04em' }}>РЕДАКТИРОВАНИЕ</div>
+              {([
+                ['name', 'Имя'],
+                ['age', 'Возраст'],
+                ['city', 'Город'],
+                ['occupation', 'Профессия'],
+                ['goal', 'Цель (romantic/friendship/open)'],
+                ['partner_preference', 'Предпочтение (male/female/any)'],
+              ] as [string, string][]).map(([field, label]) => (
+                <div key={field} style={{ marginBottom: 8 }}>
+                  <div style={{ fontSize: 11, color: 'var(--d3)', marginBottom: 4 }}>{label}</div>
+                  <input
+                    value={editData[field] ?? ''}
+                    onChange={e => setEditData(d => ({ ...d, [field]: field === 'age' ? Number(e.target.value) || '' : e.target.value }))}
+                    style={inputStyle}
+                  />
+                </div>
+              ))}
+              <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
+                <button onClick={save} disabled={saving} style={btn(true)}>{saving ? 'Сохраняю...' : 'Сохранить'}</button>
+                <button onClick={() => setEditing(false)} style={btn()}>Отмена</button>
+              </div>
+            </div>
+          ) : (
+            <div style={{ ...card, marginTop: 12 }}>
+              <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--d3)', marginBottom: 10, letterSpacing: '.04em' }}>ПРОФИЛЬ</div>
+              {[
+                ['Имя', user.name], ['Возраст', user.age], ['Город', user.city],
+                ['Профессия', user.occupation], ['Цель', user.goal],
+                ['Предпочтение', user.partner_preference], ['Тип личности', user.personality_type],
+                ['Telegram ID', user.telegram_id], ['Этап онбординга', user.onboarding_step],
+                ['Заполненность', user.profile_completeness_pct != null ? `${user.profile_completeness_pct}%` : '—'],
+                ['Постов', user.posts_count],
+                ['Регистрация', user.created_at ? new Date(user.created_at).toLocaleDateString('ru') : '—'],
+                ['Последний вход', user.last_seen ? new Date(user.last_seen).toLocaleString('ru') : '—'],
+              ].map(([label, val]) => val != null && val !== '' ? (
+                <div key={String(label)} style={{ display: 'flex', justifyContent: 'space-between', padding: '5px 0', borderBottom: '1px solid var(--l)' }}>
+                  <span style={{ fontSize: 12, color: 'var(--d3)' }}>{label}</span>
+                  <span style={{ fontSize: 12, color: 'var(--d1)', textAlign: 'right', maxWidth: '60%', wordBreak: 'break-word' }}>{String(val)}</span>
+                </div>
+              ) : null)}
+              {user.profile_text && (
+                <div style={{ marginTop: 10, fontSize: 12, color: 'var(--d2)', lineHeight: 1.5, fontStyle: 'italic' }}>
+                  «{user.profile_text}»
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Missing patterns */}
+          {user.missing_patterns?.length > 0 && (
+            <div style={{ ...card }}>
+              <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--d3)', marginBottom: 8, letterSpacing: '.04em' }}>НЕ ЗАПОЛНЕНО</div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                {user.missing_patterns.map((p: string) => (
+                  <span key={p} style={{ fontSize: 11, padding: '3px 8px', borderRadius: 6, background: 'rgba(255,180,0,0.12)', color: '#f0a020', border: '1px solid rgba(255,180,0,0.2)' }}>{p}</span>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Flags */}
+          <div style={card}>
+            <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--d3)', marginBottom: 6, letterSpacing: '.04em' }}>СТАТУСЫ</div>
+            <FlagToggle flag="is_active" label="Активен" color="#40c060" />
+            <FlagToggle flag="is_admin" label="Администратор" color="#7B5EFF" />
+            <FlagToggle flag="is_blocked" label="Заблокирован" color="#f08020" />
+            <FlagToggle flag="is_banned" label="Забанен" color="#ff4466" />
+          </div>
+
+          {/* Actions */}
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            <button onClick={runMatching} style={btn()}>▶ Запустить матчинг</button>
+            <button onClick={deleteUser} style={dangerBtn}>Удалить аккаунт</button>
+          </div>
+
+          {/* Posts */}
+          {posts.length > 0 && (
+            <div style={{ marginTop: 16 }}>
+              <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--d3)', marginBottom: 8, letterSpacing: '.04em' }}>ПОСТЫ ({posts.length})</div>
+              {posts.map(p => (
+                <div key={p.id} style={card}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                    <div style={{ flex: 1, marginRight: 10 }}>
+                      <div style={{ fontSize: 11, color: 'var(--d4)', marginBottom: 4 }}>
+                        {new Date(p.created_at).toLocaleDateString('ru')} · ♥ {p.likes_count} · 💬 {p.comments_count}
+                        {p.has_test && <span style={{ color: '#7B5EFF', marginLeft: 6 }}>ТЕСТ</span>}
+                      </div>
+                      <div style={{ fontSize: 13, color: 'var(--d1)', lineHeight: 1.4 }}>{p.text}</div>
+                    </div>
+                    <button onClick={() => deletePost(p.id)} style={dangerBtn}>✕</button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
+        </div>
+      )}
     </div>
   )
 }
@@ -365,13 +665,63 @@ function Users() {
 
 function MatchesTab() {
   const [matches, setMatches] = useState<any[]>([])
+  const [selectedMatch, setSelectedMatch] = useState<any | null>(null)
+  const [messages, setMessages] = useState<any[]>([])
+  const [loadingMsgs, setLoadingMsgs] = useState(false)
 
   useEffect(() => {
     adminGet('/matches?limit=50').then((r: any) => setMatches(r.matches)).catch(() => {})
   }, [])
 
+  const openMatch = async (m: any) => {
+    setSelectedMatch(m)
+    setLoadingMsgs(true)
+    try {
+      const r: any = await adminGet(`/chats/${m.id}/messages`)
+      setMessages(r.messages || [])
+    } catch { setMessages([]) }
+    setLoadingMsgs(false)
+  }
+
   const statusColor: Record<string, string> = {
     pending: 'var(--d3)', accepted: '#40c060', rejected: '#ff6060',
+  }
+
+  if (selectedMatch) {
+    const m = selectedMatch
+    const senderName = (id: number) =>
+      id === m.user1_id ? m.user1_name : m.user2_name
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '12px 16px', borderBottom: '1px solid var(--l)', flexShrink: 0 }}>
+          <button onClick={() => setSelectedMatch(null)} style={{ background: 'none', border: 'none', color: 'var(--d2)', fontSize: 22, cursor: 'pointer', padding: 0 }}>←</button>
+          <div>
+            <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--w)' }}>{m.user1_name} ↔ {m.user2_name}</div>
+            <div style={{ fontSize: 11, color: 'var(--d4)' }}>
+              {m.compatibility_score ? `${Math.round(m.compatibility_score * 100)}% совместимость · ` : ''}
+              {new Date(m.created_at).toLocaleDateString('ru')}
+            </div>
+          </div>
+          <span style={{ marginLeft: 'auto', fontSize: 11, color: statusColor[m.status] || 'var(--d3)', fontWeight: 600 }}>{m.status.toUpperCase()}</span>
+        </div>
+        <div style={{ flex: 1, overflowY: 'auto', padding: '12px 16px' }}>
+          {loadingMsgs && <div style={{ color: 'var(--d3)', textAlign: 'center', padding: 20 }}>Загрузка...</div>}
+          {!loadingMsgs && messages.length === 0 && (
+            <div style={{ color: 'var(--d3)', textAlign: 'center', padding: 20 }}>Сообщений нет</div>
+          )}
+          {messages.map(msg => (
+            <div key={msg.id} style={{ marginBottom: 10 }}>
+              <div style={{ fontSize: 11, color: 'var(--d4)', marginBottom: 2 }}>
+                {senderName(msg.sender_id)} · {new Date(msg.created_at).toLocaleString('ru')}
+              </div>
+              <div style={{ ...card, padding: '8px 12px', marginBottom: 0, display: 'inline-block', maxWidth: '85%' }}>
+                <div style={{ fontSize: 13, color: 'var(--d1)' }}>{msg.text || `[${msg.content_type}]`}</div>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    )
   }
 
   return (
@@ -381,16 +731,19 @@ function MatchesTab() {
           <div style={{ color: 'var(--d3)', textAlign: 'center', padding: 20 }}>Нет матчей</div>
         )}
         {matches.map(m => (
-          <div key={m.id} style={card}>
+          <div key={m.id} onClick={() => openMatch(m)}
+            style={{ ...card, cursor: 'pointer' }}
+            onMouseEnter={e => (e.currentTarget.style.opacity = '0.75')}
+            onMouseLeave={e => (e.currentTarget.style.opacity = '1')}
+          >
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <div>
-                <div style={{ fontSize: 13, color: 'var(--d1)' }}>
-                  Пользователи: {m.user1_id} ↔ {m.user2_id}
+                <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--w)' }}>
+                  {m.user1_name} ↔ {m.user2_name}
                 </div>
                 <div style={{ fontSize: 11, color: 'var(--d3)', marginTop: 3 }}>
-                  Совместимость: {m.compatibility_score ? `${Math.round(m.compatibility_score * 100)}%` : '—'}
-                  · Chat: {m.chat_status}
-                  · {new Date(m.created_at).toLocaleDateString('ru')}
+                  {m.compatibility_score ? `${Math.round(m.compatibility_score * 100)}% · ` : ''}
+                  {m.chat_status} · {new Date(m.created_at).toLocaleDateString('ru')}
                 </div>
               </div>
               <span style={{ fontSize: 11, color: statusColor[m.status] || 'var(--d3)', fontWeight: 600 }}>
@@ -525,6 +878,13 @@ const TABS: { id: Tab; label: string }[] = [
 
 export default function Admin({ onBack }: AdminProps) {
   const [activeTab, setActiveTab] = useState<Tab>('dashboard')
+  const [authStatus, setAuthStatus] = useState<string | null>(null)
+
+  useEffect(() => {
+    adminGet('/stats')
+      .then(() => setAuthStatus('ok'))
+      .catch((e: any) => setAuthStatus(String(e?.message ?? e)))
+  }, [])
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100dvh', background: 'var(--bg)' }}>
@@ -543,6 +903,14 @@ export default function Admin({ onBack }: AdminProps) {
         <div style={{ fontSize: 14, fontWeight: 700, letterSpacing: '.05em', color: 'var(--w)' }}>
           ADMIN
         </div>
+        {authStatus && authStatus !== 'ok' && (
+          <div style={{ fontSize: 10, color: '#ff6060', flex: 1, textAlign: 'right', wordBreak: 'break-all' }}>
+            ⚠ {authStatus.substring(0, 80)}
+          </div>
+        )}
+        {authStatus === 'ok' && (
+          <div style={{ fontSize: 10, color: '#40c060', marginLeft: 'auto' }}>✓ auth ok</div>
+        )}
       </div>
 
       {/* Tab bar */}
