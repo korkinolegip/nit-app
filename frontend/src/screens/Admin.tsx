@@ -151,6 +151,15 @@ function Drafts() {
   const [editText, setEditText] = useState('')
   const [newTopic, setNewTopic] = useState('')
   const [generating, setGenerating] = useState(false)
+  const [fetching, setFetching] = useState(false)
+  const [toast, setToast] = useState<string | null>(null)
+  const toastRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  const showToast = (msg: string) => {
+    setToast(msg)
+    if (toastRef.current) clearTimeout(toastRef.current)
+    toastRef.current = setTimeout(() => setToast(null), 3500)
+  }
 
   const load = useCallback(() => {
     adminGet('/drafts?limit=30').then((r: any) => setDrafts(r.drafts)).catch(() => {})
@@ -158,20 +167,51 @@ function Drafts() {
 
   useEffect(() => { load() }, [load])
 
+  const fetchFromGithub = async () => {
+    setFetching(true)
+    try {
+      const r: any = await adminPost('/drafts/fetch-from-github')
+      if (r.ok) {
+        showToast(`Черновик создан из ${r.commits} коммитов`)
+        load()
+      } else {
+        showToast('Нет новых коммитов за 7 дней')
+      }
+    } catch (e: any) {
+      showToast('Ошибка: ' + String(e?.message ?? e).substring(0, 60))
+    } finally {
+      setFetching(false)
+    }
+  }
+
   const publish = async (id: number) => {
-    await adminPost(`/drafts/${id}/publish`)
-    load()
+    try {
+      await adminPost(`/drafts/${id}/publish`)
+      load()
+    } catch (e: any) { showToast('Ошибка публикации: ' + String(e?.message ?? e).substring(0, 60)) }
   }
 
   const discard = async (id: number) => {
-    await adminPost(`/drafts/${id}/discard`)
-    load()
+    try {
+      await adminPost(`/drafts/${id}/discard`)
+      load()
+    } catch (e: any) { showToast('Ошибка: ' + String(e?.message ?? e).substring(0, 60)) }
   }
 
   const saveEdit = async (id: number) => {
-    await adminPatch(`/drafts/${id}`, { generated_text: editText })
-    setEditId(null)
-    load()
+    try {
+      await adminPatch(`/drafts/${id}`, { generated_text: editText })
+      setEditId(null)
+      load()
+    } catch (e: any) { showToast('Ошибка сохранения: ' + String(e?.message ?? e).substring(0, 60)) }
+  }
+
+  const regenerate = async (id: number) => {
+    try {
+      const r: any = await adminPost(`/drafts/${id}/regenerate`)
+      setDrafts(ds => ds.map(d => d.id === id ? r : d))
+      showToast('Текст перегенерирован')
+    } catch (e: any) { showToast('Ошибка перегенерации: ' + String(e?.message ?? e).substring(0, 60)) }
   }
 
   const generate = async () => {
@@ -179,10 +219,13 @@ function Drafts() {
     setGenerating(true)
     try {
       const res: any = await adminPost('/generate-post', { topic: newTopic })
-      const draft: any = await adminPost('/drafts', { type: 'post', raw_text: newTopic, generated_text: res.text })
+      await adminPost('/drafts', { type: 'post', raw_text: newTopic, generated_text: res.text })
       setNewTopic('')
       load()
-    } catch { /* ignore */ } finally {
+      showToast('Черновик создан')
+    } catch (e: any) {
+      showToast('Ошибка: ' + String(e?.message ?? e).substring(0, 60))
+    } finally {
       setGenerating(false)
     }
   }
@@ -193,8 +236,26 @@ function Drafts() {
 
   return (
     <div style={{ padding: '0 16px 24px' }}>
-      {/* Generate new */}
-      <div style={{ ...card, marginTop: 16 }}>
+      {toast && (
+        <div style={{
+          position: 'fixed', bottom: 80, left: '50%', transform: 'translateX(-50%)',
+          background: 'var(--bg3)', border: '1px solid var(--l)', borderRadius: 10,
+          padding: '10px 16px', fontSize: 13, color: 'var(--d1)', zIndex: 100,
+          whiteSpace: 'nowrap', boxShadow: '0 4px 16px rgba(0,0,0,.3)',
+        }}>
+          {toast}
+        </div>
+      )}
+
+      {/* Fetch from GitHub */}
+      <div style={{ marginTop: 16, marginBottom: 4 }}>
+        <button onClick={fetchFromGithub} disabled={fetching} style={btn()}>
+          {fetching ? '⏳ Загружаю...' : '⬇ Загрузить из GitHub'}
+        </button>
+      </div>
+
+      {/* Generate new post */}
+      <div style={{ ...card, marginTop: 12 }}>
         <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--w)', marginBottom: 10 }}>Сгенерировать пост</div>
         <input
           value={newTopic}
@@ -260,6 +321,7 @@ function Drafts() {
               {d.status === 'pending' && (
                 <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' as const }}>
                   <button onClick={() => { setEditId(d.id); setEditText(d.generated_text || d.raw_text || '') }} style={btn()}>Редактировать</button>
+                  <button onClick={() => regenerate(d.id)} style={btn()}>↻ Перегенерировать</button>
                   <button onClick={() => publish(d.id)} style={btn(true)}>Опубликовать</button>
                   <button onClick={() => discard(d.id)} style={dangerBtn}>Отклонить</button>
                 </div>

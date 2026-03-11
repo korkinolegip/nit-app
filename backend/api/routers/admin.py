@@ -881,6 +881,84 @@ async def github_webhook(request: Request):
 
 # ── Drafts ────────────────────────────────────────────────────────────────────
 
+@router.post("/drafts/fetch-from-github")
+async def admin_fetch_from_github(
+    admin: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    """Pull recent commits from GitHub, generate an update announcement via Groq, save as draft."""
+    from datetime import timedelta
+    headers = {"Accept": "application/vnd.github.v3+json"}
+    if settings.GITHUB_TOKEN:
+        headers["Authorization"] = f"Bearer {settings.GITHUB_TOKEN}"
+
+    async with httpx.AsyncClient(timeout=15) as client:
+        r = await client.get(
+            "https://api.github.com/repos/korkinolegip/nit-app/commits",
+            params={"sha": "main", "per_page": 20},
+            headers=headers,
+        )
+    if r.status_code != 200:
+        raise HTTPException(502, f"GitHub API error: {r.status_code} {r.text[:100]}")
+
+    cutoff = datetime.now(timezone.utc) - timedelta(days=7)
+    skip_patterns = ("merge", "wip", "typo", "Merge", "WIP", "Typo")
+    meaningful = []
+    for c in r.json():
+        committed_str = c.get("commit", {}).get("committer", {}).get("date", "")
+        try:
+            committed_at = datetime.fromisoformat(committed_str.replace("Z", "+00:00"))
+        except Exception:
+            continue
+        if committed_at < cutoff:
+            continue
+        msg = c.get("commit", {}).get("message", "").split("\n")[0]
+        if any(msg.startswith(p) for p in skip_patterns):
+            continue
+        meaningful.append({"id": c["sha"][:7], "message": msg})
+
+    if not meaningful:
+        return {"ok": False, "commits": 0}
+
+    generated_text = None
+    if settings.GROQ_API_KEY:
+        try:
+            changes_str = "\n".join(f"- {c['message']}" for c in meaningful)
+            prompt = (
+                f"Напиши короткое объявление об обновлении приложения знакомств «Нить» "
+                f"на основе следующих изменений:\n{changes_str}\n\n"
+                "Стиль: живой, дружелюбный, 2-3 предложения. Без технических терминов."
+            )
+            async with httpx.AsyncClient(timeout=20) as client:
+                gr = await client.post(
+                    "https://api.groq.com/openai/v1/chat/completions",
+                    headers={"Authorization": f"Bearer {settings.GROQ_API_KEY}"},
+                    json={
+                        "model": "llama-3.3-70b-versatile",
+                        "messages": [{"role": "user", "content": prompt}],
+                        "max_tokens": 200,
+                        "temperature": 0.7,
+                    },
+                )
+            if gr.status_code == 200:
+                generated_text = gr.json()["choices"][0]["message"]["content"].strip()
+        except Exception as e:
+            logger.warning(f"fetch_from_github: groq generation failed: {e}")
+
+    draft = AdminDraft(
+        type="update",
+        raw_text="\n".join(c["message"] for c in meaningful),
+        generated_text=generated_text,
+        status="pending",
+        github_commits=meaningful,
+    )
+    db.add(draft)
+    await db.commit()
+    await db.refresh(draft)
+    logger.info(f"fetch_from_github: created draft {draft.id} from {len(meaningful)} commits")
+    return {"ok": True, "draft_id": draft.id, "commits": len(meaningful)}
+
+
 @router.get("/drafts")
 async def admin_list_drafts(
     status: str | None = None,
@@ -996,6 +1074,52 @@ async def admin_discard_draft(
     d.status = "discarded"
     await db.commit()
     return {"ok": True}
+
+
+@router.post("/drafts/{draft_id}/regenerate")
+async def admin_regenerate_draft(
+    draft_id: int,
+    admin: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    """Re-generate the draft text via Groq using its original commit data or raw_text."""
+    d = await db.get(AdminDraft, draft_id)
+    if not d:
+        raise HTTPException(404, "Draft not found")
+    if not settings.GROQ_API_KEY:
+        raise HTTPException(503, "GROQ_API_KEY not configured")
+
+    if d.github_commits:
+        changes_str = "\n".join(f"- {c['message']}" for c in d.github_commits)
+        prompt = (
+            f"Напиши короткое объявление об обновлении приложения знакомств «Нить» "
+            f"на основе следующих изменений:\n{changes_str}\n\n"
+            "Стиль: живой, дружелюбный, 2-3 предложения. Без технических терминов."
+        )
+    else:
+        topic = d.raw_text or ""
+        prompt = (
+            f"Напиши интересный пост для приложения знакомств «Нить» на тему: {topic}\n\n"
+            "Стиль: тёплый, вдохновляющий, 3-4 предложения. Добавь 2-3 хэштега в конце."
+        )
+
+    async with httpx.AsyncClient(timeout=20) as client:
+        r = await client.post(
+            "https://api.groq.com/openai/v1/chat/completions",
+            headers={"Authorization": f"Bearer {settings.GROQ_API_KEY}"},
+            json={
+                "model": "llama-3.3-70b-versatile",
+                "messages": [{"role": "user", "content": prompt}],
+                "max_tokens": 200,
+                "temperature": 0.8,
+            },
+        )
+    if r.status_code != 200:
+        raise HTTPException(502, f"Groq error: {r.text[:200]}")
+
+    d.generated_text = r.json()["choices"][0]["message"]["content"].strip()
+    await db.commit()
+    return _draft_dict(d)
 
 
 def _draft_dict(d: AdminDraft) -> dict:

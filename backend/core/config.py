@@ -34,6 +34,7 @@ class Settings(BaseSettings):
     JWT_SECRET: str = "change_this_to_random_256bit_secret"
     JWT_TTL_HOURS: int = 24
     GITHUB_WEBHOOK_SECRET: str = ""
+    GITHUB_TOKEN: str = ""
 
     # Moderation
     NUDENET_REJECT_THRESHOLD: float = 0.6
