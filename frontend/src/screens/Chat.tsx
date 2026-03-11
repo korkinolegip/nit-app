@@ -24,7 +24,7 @@ interface CardItem {
 
 interface ChatProps {
   onOpenMatch: (matchId: number) => void
-  onNavigateTo: (screen: 'discovery' | 'matches' | 'chats' | 'views' | 'profile') => void
+  onNavigateTo: (screen: 'discovery' | 'matches' | 'chats' | 'views' | 'profile' | 'feed') => void
   isReturning?: boolean
   sessionComplete?: boolean
   hasPhotos?: boolean

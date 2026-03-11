@@ -36,17 +36,13 @@ export interface FeedComment {
 }
 
 export async function getFeed(limit = 20, offset = 0): Promise<FeedPost[]> {
-  const res = await apiRequest<{ posts: FeedPost[] }>(
-    `/api/feed?limit=${limit}&offset=${offset}`
-  )
-  return res.posts
+  const res = await apiRequest(`/api/feed?limit=${limit}&offset=${offset}`)
+  return (res as { posts: FeedPost[] }).posts
 }
 
 export async function getUserFeed(userId: number, limit = 20, offset = 0): Promise<FeedPost[]> {
-  const res = await apiRequest<{ posts: FeedPost[] }>(
-    `/api/feed/user/${userId}?limit=${limit}&offset=${offset}`
-  )
-  return res.posts
+  const res = await apiRequest(`/api/feed/user/${userId}?limit=${limit}&offset=${offset}`)
+  return (res as { posts: FeedPost[] }).posts
 }
 
 export async function createPost(data: {
@@ -54,10 +50,10 @@ export async function createPost(data: {
   media_key?: string
   media_type?: string
 }): Promise<FeedPost> {
-  return apiRequest<FeedPost>('/api/posts', {
+  return apiRequest('/api/posts', {
     method: 'POST',
     body: JSON.stringify(data),
-  })
+  }) as Promise<FeedPost>
 }
 
 export async function deletePost(postId: number): Promise<void> {
@@ -67,25 +63,23 @@ export async function deletePost(postId: number): Promise<void> {
 export async function uploadPostMedia(file: File): Promise<{ media_key: string; media_type: string }> {
   const form = new FormData()
   form.append('file', file)
-  return apiRequest('/api/posts/upload', { method: 'POST', body: form })
+  return apiRequest('/api/posts/upload', { method: 'POST', body: form }) as Promise<{ media_key: string; media_type: string }>
 }
 
 export async function toggleLike(postId: number): Promise<{ liked: boolean; likes_count: number }> {
-  return apiRequest(`/api/posts/${postId}/like`, { method: 'POST' })
+  return apiRequest(`/api/posts/${postId}/like`, { method: 'POST' }) as Promise<{ liked: boolean; likes_count: number }>
 }
 
 export async function getComments(postId: number, limit = 50, offset = 0): Promise<FeedComment[]> {
-  const res = await apiRequest<{ comments: FeedComment[] }>(
-    `/api/posts/${postId}/comments?limit=${limit}&offset=${offset}`
-  )
-  return res.comments
+  const res = await apiRequest(`/api/posts/${postId}/comments?limit=${limit}&offset=${offset}`)
+  return (res as { comments: FeedComment[] }).comments
 }
 
 export async function addComment(postId: number, text: string): Promise<FeedComment> {
-  return apiRequest<FeedComment>(`/api/posts/${postId}/comments`, {
+  return apiRequest(`/api/posts/${postId}/comments`, {
     method: 'POST',
     body: JSON.stringify({ text }),
-  })
+  }) as Promise<FeedComment>
 }
 
 export async function deleteComment(postId: number, commentId: number): Promise<void> {
@@ -93,14 +87,14 @@ export async function deleteComment(postId: number, commentId: number): Promise<
 }
 
 export async function toggleRepost(postId: number): Promise<{ reposted: boolean; reposts_count: number }> {
-  return apiRequest(`/api/posts/${postId}/repost`, { method: 'POST' })
+  return apiRequest(`/api/posts/${postId}/repost`, { method: 'POST' }) as Promise<{ reposted: boolean; reposts_count: number }>
 }
 
 export async function toggleSave(postId: number): Promise<{ saved: boolean }> {
-  return apiRequest(`/api/posts/${postId}/save`, { method: 'POST' })
+  return apiRequest(`/api/posts/${postId}/save`, { method: 'POST' }) as Promise<{ saved: boolean }>
 }
 
 export async function getSavedPosts(): Promise<FeedPost[]> {
-  const res = await apiRequest<{ posts: FeedPost[] }>('/api/posts/saved')
-  return res.posts
+  const res = await apiRequest('/api/posts/saved')
+  return (res as { posts: FeedPost[] }).posts
 }
