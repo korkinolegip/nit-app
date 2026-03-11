@@ -474,7 +474,9 @@ export default function Profile({ onBack }: ProfileProps) {
                           onClick={async () => {
                             try {
                               const res = await toggleLike(post.id)
+                              const delta = res.liked ? 1 : -1
                               setPosts(prev => prev.map(p => p.id === post.id ? { ...p, is_liked: res.liked, likes_count: res.likes_count } : p))
+                              setStats(prev => prev ? { ...prev, total_likes: Math.max(0, prev.total_likes + delta) } : prev)
                             } catch { /* ignore */ }
                           }}
                           style={{ background: 'none', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4, color: post.is_liked ? '#ff4466' : 'var(--d3)', fontSize: 12, fontFamily: 'Inter', padding: 0 }}
@@ -491,8 +493,11 @@ export default function Profile({ onBack }: ProfileProps) {
                             onClick={async () => {
                               try {
                                 await deletePost(post.id)
+                                setStats(prev => prev ? {
+                                  posts_count: prev.posts_count - 1,
+                                  total_likes: Math.max(0, prev.total_likes - post.likes_count),
+                                } : prev)
                                 setPosts(prev => prev.filter(p => p.id !== post.id))
-                                setStats(prev => prev ? { ...prev, posts_count: prev.posts_count - 1 } : prev)
                               } catch { /* ignore */ }
                             }}
                             style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--d4)', fontSize: 18, padding: 0 }}
