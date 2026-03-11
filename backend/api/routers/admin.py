@@ -477,54 +477,61 @@ async def admin_get_user(
     admin: User = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ):
-    u = await db.get(User, user_id)
-    if not u:
-        raise HTTPException(404, "User not found")
-
-    # Photos with signed URLs
-    photos_res = await db.execute(
-        select(Photo).where(Photo.user_id == u.id, Photo.moderation_status == "approved")
-        .order_by(Photo.sort_order)
-    )
-    photos = []
-    for p in photos_res.scalars().all():
-        try:
-            url = await get_photo_signed_url(p.storage_key)
-            photos.append({"id": p.id, "url": url, "position": p.sort_order})
-        except Exception:
-            pass
-
-    posts_count_res = await db.execute(
-        text("SELECT COUNT(*) FROM posts WHERE author_id = :uid"), {"uid": u.id}
-    )
-    posts_count = posts_count_res.scalar() or 0
-
     try:
-        from api.routers.matches import _compute_completeness
-        pct, filled, missing = _compute_completeness(u)
-    except Exception:
-        pct, filled, missing = 0, [], []
+        u = await db.get(User, user_id)
+        if not u:
+            raise HTTPException(404, "User not found")
 
-    return {
-        "id": u.id, "name": u.name, "age": u.age, "city": u.city,
-        "gender": u.gender, "goal": u.goal, "occupation": u.occupation,
-        "partner_preference": u.partner_preference,
-        "telegram_id": u.telegram_id,
-        "is_active": u.is_active, "is_banned": u.is_banned,
-        "is_blocked": getattr(u, "is_blocked", False),
-        "is_admin": getattr(u, "is_admin", False),
-        "is_bot_editor": getattr(u, "is_bot_editor", False),
-        "onboarding_step": u.onboarding_step,
-        "profile_text": u.profile_text,
-        "personality_type": u.personality_type,
-        "profile_completeness_pct": pct,
-        "filled_patterns": filled,
-        "missing_patterns": missing,
-        "posts_count": posts_count,
-        "photos": photos,
-        "created_at": u.created_at.isoformat() if getattr(u, "created_at", None) else None,
-        "last_seen": u.last_seen.isoformat() if u.last_seen else None,
-    }
+        # Photos with signed URLs
+        photos_res = await db.execute(
+            select(Photo).where(Photo.user_id == u.id, Photo.moderation_status == "approved")
+            .order_by(Photo.sort_order)
+        )
+        photos = []
+        for p in photos_res.scalars().all():
+            try:
+                url = await get_photo_signed_url(p.storage_key)
+                photos.append({"id": p.id, "url": url, "position": p.sort_order})
+            except Exception as e:
+                logger.warning(f"admin_get_user: photo url failed for {p.storage_key}: {e}")
+
+        posts_count_res = await db.execute(
+            text("SELECT COUNT(*) FROM posts WHERE author_id = :uid"), {"uid": u.id}
+        )
+        posts_count = posts_count_res.scalar() or 0
+
+        try:
+            from api.routers.matches import _compute_completeness
+            pct, filled, missing = _compute_completeness(u)
+        except Exception as e:
+            logger.warning(f"admin_get_user: _compute_completeness failed: {e}")
+            pct, filled, missing = 0, [], []
+
+        return {
+            "id": u.id, "name": u.name, "age": u.age, "city": u.city,
+            "gender": u.gender, "goal": u.goal, "occupation": u.occupation,
+            "partner_preference": u.partner_preference,
+            "telegram_id": u.telegram_id,
+            "is_active": u.is_active, "is_banned": u.is_banned,
+            "is_blocked": getattr(u, "is_blocked", False),
+            "is_admin": getattr(u, "is_admin", False),
+            "is_bot_editor": getattr(u, "is_bot_editor", False),
+            "onboarding_step": u.onboarding_step,
+            "profile_text": u.profile_text,
+            "personality_type": u.personality_type,
+            "profile_completeness_pct": pct,
+            "filled_patterns": filled,
+            "missing_patterns": missing,
+            "posts_count": posts_count,
+            "photos": photos,
+            "created_at": u.created_at.isoformat() if getattr(u, "created_at", None) else None,
+            "last_seen": u.last_seen.isoformat() if u.last_seen else None,
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"admin_get_user({user_id}): unexpected error: {e}", exc_info=True)
+        raise HTTPException(500, f"Internal error: {type(e).__name__}: {e}")
 
 
 @router.get("/users/{user_id}/posts")
