@@ -31,6 +31,7 @@ interface ChatProps {
   hasPhotos?: boolean
   badges?: { matches?: number; chats?: number; views?: number }
   isAdmin?: boolean
+  isVisible?: boolean
 }
 
 function ChatTestSheet({ postId, onClose, onComplete }: { postId: number; onClose: () => void; onComplete: (resultDesc: string) => void }) {
@@ -109,7 +110,7 @@ function ChatTestSheet({ postId, onClose, onComplete }: { postId: number; onClos
   )
 }
 
-export default function Chat({ onOpenMatch, onNavigateTo, isReturning = false, sessionComplete = false, hasPhotos = false, badges = {}, isAdmin = false }: ChatProps) {
+export default function Chat({ onOpenMatch, onNavigateTo, isReturning = false, sessionComplete = false, hasPhotos = false, badges = {}, isAdmin = false, isVisible = true }: ChatProps) {
   const [pendingTarget, setPendingTarget] = useState<{ id: number; name: string } | null>(null)
   const [suggestTestId, setSuggestTestId] = useState<number | null>(null)
   const { messages, isTyping, quickReplies, send, addMessage, scrollRef, setQuickReplies, actionButton, setActionButton } = useChat({ onNavigate: onNavigateTo, targetUserId: pendingTarget?.id ?? null })
@@ -120,6 +121,13 @@ export default function Chat({ onOpenMatch, onNavigateTo, isReturning = false, s
   const lastGreetAtRef = useRef(0) // timestamp of last injected greeting
   const messagesRef = useRef(messages)
   messagesRef.current = messages
+
+  // Scroll to bottom instantly when Chat becomes visible (was hidden via display:none)
+  useEffect(() => {
+    if (!isVisible) return
+    const el = scrollRef.current
+    if (el) el.scrollTop = el.scrollHeight
+  }, [isVisible, scrollRef])
 
   // Heartbeat — keep last_seen fresh while app is open
   useEffect(() => {

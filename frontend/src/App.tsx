@@ -114,6 +114,7 @@ export default function App() {
           hasPhotos={hasPhotos}
           badges={badges}
           isAdmin={isAdmin}
+          isVisible={screen === 'chat'}
         />
       </div>
 
