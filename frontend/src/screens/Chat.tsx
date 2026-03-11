@@ -24,6 +24,7 @@ interface CardItem {
 }
 
 interface ChatProps {
+  onClose?: () => void
   onOpenMatch: (matchId: number) => void
   onNavigateTo: (screen: 'discovery' | 'matches' | 'chats' | 'views' | 'profile' | 'feed' | 'admin') => void
   isReturning?: boolean
@@ -110,13 +111,12 @@ function ChatTestSheet({ postId, onClose, onComplete }: { postId: number; onClos
   )
 }
 
-export default function Chat({ onOpenMatch, onNavigateTo, isReturning = false, sessionComplete = false, hasPhotos = false, badges = {}, isAdmin = false, isVisible = true }: ChatProps) {
+export default function Chat({ onClose, onOpenMatch, onNavigateTo, isReturning = false, sessionComplete = false, hasPhotos = false, badges = {}, isAdmin = false, isVisible = true }: ChatProps) {
   const [pendingTarget, setPendingTarget] = useState<{ id: number; name: string } | null>(null)
   const [suggestTestId, setSuggestTestId] = useState<number | null>(null)
   const { messages, isTyping, quickReplies, send, addMessage, scrollRef, setQuickReplies, actionButton, setActionButton } = useChat({ onNavigate: onNavigateTo, targetUserId: pendingTarget?.id ?? null })
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [isMenuOpen, setIsMenuOpen] = useState(false)
-  const [isNavOpen, setIsNavOpen] = useState(false)
   const [viewingCard, setViewingCard] = useState<CardItem | null>(null)
   const lastGreetAtRef = useRef(0) // timestamp of last injected greeting
   const messagesRef = useRef(messages)
@@ -306,9 +306,24 @@ export default function Chat({ onOpenMatch, onNavigateTo, isReturning = false, s
         borderBottom: '1px solid var(--l)',
         background: 'var(--bg)', flexShrink: 0,
       }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+        {/* Close button */}
+        <button
+          onClick={onClose}
+          style={{
+            width: '36px', height: '36px', borderRadius: '10px',
+            border: '1px solid var(--l)', display: 'flex',
+            alignItems: 'center', justifyContent: 'center', cursor: 'pointer',
+            background: 'none', color: 'rgba(255,255,255,.6)',
+            fontSize: '18px', lineHeight: 1,
+          }}
+        >
+          ×
+        </button>
+
+        {/* Title */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
           <div style={{ fontSize: '14px', fontWeight: 600, letterSpacing: '.05em', color: 'var(--w)' }}>
-            НИТЬ
+            нить
           </div>
           <div style={{
             fontSize: '11px', color: 'var(--d3)', background: 'var(--d5)',
@@ -317,52 +332,26 @@ export default function Chat({ onOpenMatch, onNavigateTo, isReturning = false, s
             AI-агент
           </div>
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-          {/* Nav menu button */}
-          <button
-            onClick={() => setIsNavOpen(true)}
-            style={{
-              position: 'relative',
-              height: '32px', borderRadius: '10px',
-              border: '1px solid var(--l)', display: 'flex',
-              alignItems: 'center', justifyContent: 'center', cursor: 'pointer',
-              background: 'none', padding: '0 12px',
-              fontSize: '12px', fontWeight: 600, letterSpacing: '.06em',
-              color: 'rgba(255,255,255,.55)', fontFamily: 'Inter',
-            }}
-          >
-            МЕНЮ
-            {/* Badge: total unread */}
-            {(badges.matches || 0) + (badges.chats || 0) + (badges.views || 0) > 0 && (
-              <div style={{
-                position: 'absolute', top: 3, right: 3,
-                width: 7, height: 7, borderRadius: '50%',
-                background: '#ff4466',
-              }} />
-            )}
-          </button>
-          {/* Settings button — thread-gear icon */}
-          <button
-            onClick={() => setIsMenuOpen(true)}
-            style={{
-              width: '28px', height: '28px', borderRadius: '7px',
-              border: '1px solid var(--l)', display: 'flex',
-              alignItems: 'center', justifyContent: 'center', cursor: 'pointer',
-              background: 'none',
-            }}
-          >
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none">
-              {/* Center hole */}
-              <circle cx="12" cy="12" r="2.8" stroke="rgba(255,255,255,.45)" strokeWidth="1.4" strokeDasharray="2.2 1.4"/>
-              {/* Gear ring with stitched outline */}
-              <path
-                d="M12 2.5 L13.6 4.7 L16.3 4.0 L17.0 6.7 L19.5 7.7 L18.5 10.3 L20.3 12.0 L18.5 13.7 L19.5 16.3 L17.0 17.3 L16.3 20.0 L13.6 19.3 L12 21.5 L10.4 19.3 L7.7 20.0 L7.0 17.3 L4.5 16.3 L5.5 13.7 L3.7 12.0 L5.5 10.3 L4.5 7.7 L7.0 6.7 L7.7 4.0 L10.4 4.7 Z"
-                stroke="rgba(255,255,255,.45)" strokeWidth="1.3" strokeLinejoin="round"
-                strokeDasharray="2.5 1.6"
-              />
-            </svg>
-          </button>
-        </div>
+
+        {/* Settings button */}
+        <button
+          onClick={() => setIsMenuOpen(true)}
+          style={{
+            width: '36px', height: '36px', borderRadius: '10px',
+            border: '1px solid var(--l)', display: 'flex',
+            alignItems: 'center', justifyContent: 'center', cursor: 'pointer',
+            background: 'none',
+          }}
+        >
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none">
+            <circle cx="12" cy="12" r="2.8" stroke="rgba(255,255,255,.45)" strokeWidth="1.4" strokeDasharray="2.2 1.4"/>
+            <path
+              d="M12 2.5 L13.6 4.7 L16.3 4.0 L17.0 6.7 L19.5 7.7 L18.5 10.3 L20.3 12.0 L18.5 13.7 L19.5 16.3 L17.0 17.3 L16.3 20.0 L13.6 19.3 L12 21.5 L10.4 19.3 L7.7 20.0 L7.0 17.3 L4.5 16.3 L5.5 13.7 L3.7 12.0 L5.5 10.3 L4.5 7.7 L7.0 6.7 L7.7 4.0 L10.4 4.7 Z"
+              stroke="rgba(255,255,255,.45)" strokeWidth="1.3" strokeLinejoin="round"
+              strokeDasharray="2.5 1.6"
+            />
+          </svg>
+        </button>
       </div>
 
       {/* Pending match target banner */}
@@ -521,14 +510,6 @@ export default function Chat({ onOpenMatch, onNavigateTo, isReturning = false, s
         <SettingsSheet onClose={() => setIsMenuOpen(false)} />
       )}
 
-      {isNavOpen && (
-        <MenuSheet
-          onNavigate={(screen) => { onNavigateTo(screen as any); setIsNavOpen(false) }}
-          onClose={() => setIsNavOpen(false)}
-          badges={badges}
-          isAdmin={isAdmin}
-        />
-      )}
 
       {/* Profile modal for user card */}
       {viewingCard && (

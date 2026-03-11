@@ -174,14 +174,6 @@ export default function Discovery({ onBack, onOpenChat, onGoToChat }: DiscoveryP
         paddingTop: 'max(12px, env(safe-area-inset-top, 0px))',
         borderBottom: '1px solid var(--l)', background: 'var(--bg)', flexShrink: 0,
       }}>
-        <button onClick={onBack} style={{
-          background: 'none', border: 'none', cursor: 'pointer',
-          width: 32, height: 32, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--d2)',
-        }}>
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
-            <path d="M15 18l-6-6 6-6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-          </svg>
-        </button>
         <div style={{ fontSize: '14px', fontWeight: 600, letterSpacing: '.04em', color: 'var(--w)' }}>ЛЮДИ</div>
         <button
           onClick={() => setShowFilters(true)}

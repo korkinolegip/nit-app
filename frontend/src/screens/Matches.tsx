@@ -165,19 +165,11 @@ export default function Matches({ onBack, onOpenChat, chatsOnly = false }: Match
         paddingTop: 'max(12px, env(safe-area-inset-top, 0px))',
         borderBottom: '1px solid var(--l)', background: 'var(--bg)', flexShrink: 0,
       }}>
-        <button onClick={onBack} style={{
-          background: 'none', border: 'none', cursor: 'pointer',
-          width: 32, height: 32, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--d2)',
-        }}>
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
-            <path d="M15 18l-6-6 6-6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-          </svg>
-        </button>
         <div style={{ fontSize: '14px', fontWeight: 600, letterSpacing: '.04em', color: 'var(--w)' }}>{chatsOnly ? 'ЧАТЫ' : 'МАТЧИ'}</div>
         <div style={{ width: 32 }} />
       </div>
 
-      <div style={{ flex: 1, overflowY: 'auto', padding: '16px' }}>
+      <div style={{ flex: 1, overflowY: 'auto', padding: '16px', paddingBottom: 'calc(80px + env(safe-area-inset-bottom, 0px))' }}>
         {loading ? (
           <Loader />
         ) : matches.length === 0 ? (

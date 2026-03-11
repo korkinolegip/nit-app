@@ -1046,24 +1046,13 @@ export default function Feed({ onBack }: FeedProps) {
         display: 'flex', alignItems: 'center', justifyContent: 'space-between',
         padding: '14px 20px 12px', flexShrink: 0,
         borderBottom: '1px solid var(--l)',
+        paddingTop: 'max(14px, env(safe-area-inset-top, 14px))',
       }}>
-        <button
-          onClick={onBack}
-          style={{
-            background: 'none', border: 'none', cursor: 'pointer',
-            color: 'var(--d2)', padding: '4px 0', display: 'flex', alignItems: 'center', gap: 6,
-          }}
-        >
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-            <path d="M19 12H5m7-7-7 7 7 7" strokeLinecap="round" strokeLinejoin="round" />
-          </svg>
-        </button>
-
         <span style={{
-          fontSize: 15, fontWeight: 600, color: 'var(--d1)', fontFamily: 'Inter',
-          letterSpacing: '-0.01em',
+          fontSize: 16, fontWeight: 700, color: 'var(--w)', fontFamily: 'Inter',
+          letterSpacing: '.04em',
         }}>
-          Лента
+          нить
         </span>
 
         <button
@@ -1085,7 +1074,7 @@ export default function Feed({ onBack }: FeedProps) {
       <div
         ref={scrollRef}
         onScroll={handleScroll}
-        style={{ flex: 1, overflowY: 'auto', padding: '12px 16px' }}
+        style={{ flex: 1, overflowY: 'auto', padding: '12px 16px', paddingBottom: 'calc(80px + env(safe-area-inset-bottom, 0px))' }}
       >
         {showWelcome && <WelcomeBanner onClose={handleDismissWelcome} />}
 

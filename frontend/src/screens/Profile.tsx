@@ -238,18 +238,6 @@ export default function Profile({ onBack, onGoToChat }: ProfileProps) {
         borderBottom: '1px solid var(--l)',
         background: 'var(--bg)', flexShrink: 0,
       }}>
-        <button
-          onClick={onBack}
-          style={{
-            background: 'none', border: 'none', cursor: 'pointer',
-            width: '32px', height: '32px', display: 'flex',
-            alignItems: 'center', justifyContent: 'center', color: 'var(--d2)',
-          }}
-        >
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
-            <path d="M15 18l-6-6 6-6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-          </svg>
-        </button>
         <div style={{ fontSize: '14px', fontWeight: 600, letterSpacing: '.04em', color: 'var(--w)' }}>
           ПРОФИЛЬ
         </div>
@@ -257,7 +245,7 @@ export default function Profile({ onBack, onGoToChat }: ProfileProps) {
       </div>
 
       {/* Scrollable content */}
-      <div style={{ flex: 1, overflowY: 'auto', padding: '24px 16px 32px' }}>
+      <div style={{ flex: 1, overflowY: 'auto', padding: '24px 16px calc(80px + env(safe-area-inset-bottom, 0px))' }}>
         {loading ? (
           <div style={{ display: 'flex', justifyContent: 'center', paddingTop: '60px' }}>
             <div style={{ width: 8, height: 8, borderRadius: '50%', background: 'var(--d3)' }} />
