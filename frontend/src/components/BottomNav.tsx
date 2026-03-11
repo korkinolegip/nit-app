@@ -203,6 +203,7 @@ export default function BottomNav({
         <NavTab
           active={activeTab === 'profile'}
           label="Я"
+          badge={badges.views}
           onTouchStart={startLongPress}
           onTouchEnd={handleProfileTouchEnd}
           onMouseDown={startLongPress}
@@ -236,6 +237,9 @@ export default function BottomNav({
             }}
           >
             <div style={{ width: 36, height: 4, borderRadius: 2, background: 'var(--d4, rgba(255,255,255,0.12))', margin: '12px auto 8px' }} />
+            <div style={{ fontSize: 11, color: 'var(--d4, rgba(255,255,255,0.25))', textAlign: 'center', marginBottom: 6, fontFamily: 'Inter' }}>
+              Удержи 👤 для быстрого доступа
+            </div>
 
             <ContextItem
               icon="👁"
