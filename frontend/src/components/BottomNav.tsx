@@ -1,39 +1,24 @@
-import { useState, useRef, useCallback } from 'react'
-
 type MainTab = 'feed' | 'discovery' | 'matches' | 'profile'
 
 interface BottomNavProps {
   activeTab: MainTab
   onTabChange: (tab: 'feed' | 'discovery' | 'chat' | 'matches' | 'profile') => void
   badges?: { matches?: number; views?: number }
-  isAdmin?: boolean
   hidden?: boolean
-  onNavigateTo: (screen: string) => void
-  onOpenSettings: () => void
-  isPaused?: boolean
-  onTogglePause?: () => void
 }
 
 function NavTab({
-  icon, label, active, badge, onClick, onTouchStart, onTouchEnd, onMouseDown, onMouseUp,
+  icon, label, active, badge, onClick,
 }: {
   icon: React.ReactNode
   label: string
   active: boolean
   badge?: number
   onClick?: () => void
-  onTouchStart?: () => void
-  onTouchEnd?: () => void
-  onMouseDown?: () => void
-  onMouseUp?: () => void
 }) {
   return (
     <button
       onClick={onClick}
-      onTouchStart={onTouchStart}
-      onTouchEnd={onTouchEnd}
-      onMouseDown={onMouseDown}
-      onMouseUp={onMouseUp}
       style={{
         flex: 1, display: 'flex', flexDirection: 'column',
         alignItems: 'center', justifyContent: 'center',
@@ -68,53 +53,9 @@ function NavTab({
 }
 
 export default function BottomNav({
-  activeTab, onTabChange, badges = {}, isAdmin = false,
-  hidden = false, onNavigateTo, onOpenSettings, isPaused = false, onTogglePause,
+  activeTab, onTabChange, badges = {}, hidden = false,
 }: BottomNavProps) {
-  const [contextMenuOpen, setContextMenuOpen] = useState(false)
-  const [pauseLoading, setPauseLoading] = useState(false)
-  const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const longPressTriggered = useRef(false)
-
-  const startLongPress = useCallback(() => {
-    longPressTriggered.current = false
-    longPressTimer.current = setTimeout(() => {
-      longPressTriggered.current = true
-      setContextMenuOpen(true)
-    }, 500)
-  }, [])
-
-  const cancelLongPress = useCallback(() => {
-    if (longPressTimer.current) {
-      clearTimeout(longPressTimer.current)
-      longPressTimer.current = null
-    }
-  }, [])
-
-  const handleProfileTouchEnd = useCallback(() => {
-    cancelLongPress()
-    // If long press was triggered, don't also navigate
-    if (!longPressTriggered.current) {
-      onTabChange('profile')
-    }
-  }, [cancelLongPress, onTabChange])
-
-  const handleProfileClick = useCallback(() => {
-    if (!longPressTriggered.current) {
-      onTabChange('profile')
-    }
-  }, [onTabChange])
-
-  const handleTogglePause = async () => {
-    if (!onTogglePause) return
-    setPauseLoading(true)
-    try { await onTogglePause() } finally { setPauseLoading(false) }
-    setContextMenuOpen(false)
-  }
-
   if (hidden) return null
-
-  const matchBadge = (badges.matches || 0)
 
   return (
     <>
@@ -174,7 +115,6 @@ export default function BottomNav({
               flexShrink: 0,
             }}
           >
-            {/* Thread / nit icon */}
             <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
               <path d="M12 3C7 3 3 7 3 12s4 9 9 9" stroke="white" strokeWidth="2" strokeLinecap="round"/>
               <path d="M12 3c5 0 9 4 9 9" stroke="white" strokeWidth="2" strokeLinecap="round" strokeDasharray="3 2"/>
@@ -190,7 +130,7 @@ export default function BottomNav({
         <NavTab
           active={activeTab === 'matches'}
           label="Матчи"
-          badge={matchBadge}
+          badge={badges.matches}
           onClick={() => onTabChange('matches')}
           icon={
             <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
@@ -204,11 +144,7 @@ export default function BottomNav({
           active={activeTab === 'profile'}
           label="Я"
           badge={badges.views}
-          onTouchStart={startLongPress}
-          onTouchEnd={handleProfileTouchEnd}
-          onMouseDown={startLongPress}
-          onMouseUp={() => { cancelLongPress() }}
-          onClick={handleProfileClick}
+          onClick={() => onTabChange('profile')}
           icon={
             <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
               <circle cx="12" cy="8" r="3.5" stroke="currentColor" strokeWidth="1.5"/>
@@ -218,71 +154,6 @@ export default function BottomNav({
         />
       </div>
 
-      {/* Context menu for 👤 */}
-      {contextMenuOpen && (
-        <div
-          style={{ position: 'fixed', inset: 0, zIndex: 200 }}
-          onClick={() => setContextMenuOpen(false)}
-        >
-          <div
-            onClick={e => e.stopPropagation()}
-            style={{
-              position: 'absolute', bottom: 0, left: 0, right: 0,
-              background: 'var(--bg2, #13111a)',
-              borderRadius: '20px 20px 0 0',
-              border: '1px solid var(--l, rgba(255,255,255,0.08))',
-              borderBottom: 'none',
-              paddingBottom: 'env(safe-area-inset-bottom, 0px)',
-              animation: 'slideUp 0.22s cubic-bezier(0.34,1.2,0.64,1)',
-            }}
-          >
-            <div style={{ width: 36, height: 4, borderRadius: 2, background: 'var(--d4, rgba(255,255,255,0.12))', margin: '12px auto 16px' }} />
-
-            <ContextItem
-              icon="👁"
-              label="Просмотры профиля"
-              badge={badges.views}
-              onClick={() => { setContextMenuOpen(false); onNavigateTo('views') }}
-            />
-            <ContextItem
-              icon="🔖"
-              label="Отложенные профили"
-              onClick={() => { setContextMenuOpen(false); onNavigateTo('saved') }}
-            />
-
-            <div style={{ height: 1, background: 'var(--l, rgba(255,255,255,0.08))', margin: '6px 16px' }} />
-
-            <ContextItem
-              icon="⚙"
-              label="Настройки"
-              onClick={() => { setContextMenuOpen(false); onOpenSettings() }}
-            />
-            <ContextItem
-              icon={isPaused ? '▶' : '⏸'}
-              label={pauseLoading ? 'Обновление...' : (isPaused ? 'Снять с паузы' : 'Поставить на паузу')}
-              onClick={handleTogglePause}
-            />
-
-            {isAdmin && (
-              <>
-                <div style={{ height: 1, background: 'var(--l, rgba(255,255,255,0.08))', margin: '6px 16px' }} />
-                <ContextItem
-                  icon="🛡"
-                  label="Админ-панель"
-                  onClick={() => { setContextMenuOpen(false); onNavigateTo('admin') }}
-                />
-              </>
-            )}
-
-            <div style={{ height: 16 }} />
-          </div>
-
-          <style>{`
-            @keyframes slideUp { from { transform: translateY(100%) } to { transform: none } }
-          `}</style>
-        </div>
-      )}
-
       <style>{`
         @keyframes navGlow {
           0%, 100% { box-shadow: 0 0 0 0 rgba(123,94,255,0); }
@@ -290,40 +161,5 @@ export default function BottomNav({
         }
       `}</style>
     </>
-  )
-}
-
-function ContextItem({ icon, label, badge, onClick }: {
-  icon: string
-  label: string
-  badge?: number
-  onClick: () => void
-}) {
-  return (
-    <button
-      onClick={onClick}
-      style={{
-        width: '100%', display: 'flex', alignItems: 'center', gap: 12,
-        padding: '13px 20px',
-        background: 'none', border: 'none', cursor: 'pointer',
-        color: 'var(--d1, rgba(255,255,255,0.8))', fontFamily: 'Inter',
-        fontSize: 15, fontWeight: 500, textAlign: 'left',
-        WebkitTapHighlightColor: 'transparent',
-      }}
-    >
-      <span style={{ fontSize: 18, width: 24, textAlign: 'center', flexShrink: 0 }}>{icon}</span>
-      <span style={{ flex: 1 }}>{label}</span>
-      {badge != null && badge > 0 && (
-        <span style={{
-          background: '#ff4466', color: '#fff',
-          borderRadius: 20, minWidth: 20, height: 20,
-          fontSize: 11, fontWeight: 700,
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-          padding: '0 6px',
-        }}>
-          {badge > 99 ? '99+' : badge}
-        </span>
-      )}
-    </button>
   )
 }

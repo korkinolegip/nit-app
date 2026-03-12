@@ -7,9 +7,6 @@ interface ProfileProps {
   onGoToChat?: () => void
   onNavigateViews?: () => void
   onNavigateSaved?: () => void
-  onOpenSettings?: () => void
-  isPaused?: boolean
-  onTogglePause?: () => void
   isAdmin?: boolean
   onNavigateAdmin?: () => void
   viewsBadge?: number
@@ -53,7 +50,7 @@ function timeAgo(iso: string): string {
   return new Date(iso).toLocaleDateString('ru', { day: 'numeric', month: 'short' })
 }
 
-export default function Profile({ onBack, onGoToChat, onNavigateViews, onNavigateSaved, onOpenSettings, isPaused = false, onTogglePause, isAdmin = false, onNavigateAdmin, viewsBadge = 0 }: ProfileProps) {
+export default function Profile({ onBack, onGoToChat, onNavigateViews, onNavigateSaved, isAdmin = false, onNavigateAdmin, viewsBadge = 0 }: ProfileProps) {
   const [profile, setProfile] = useState<ProfileData & { id?: number }>({})
   const [photos, setPhotos] = useState<PhotoData[]>([])
   const [photoIndex, setPhotoIndex] = useState(0)

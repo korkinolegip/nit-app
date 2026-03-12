@@ -13,7 +13,6 @@ import Feed from './screens/Feed'
 import SavedProfiles from './screens/SavedProfiles'
 import Admin from './screens/Admin'
 import { initAuth } from './api/client'
-import { apiRequest } from './api/client'
 import { getChatStatus } from './api/chat'
 import { getMatches } from './api/matches'
 import { getViewsCount } from './api/views'
@@ -38,7 +37,6 @@ export default function App() {
   const [isAdmin, setIsAdmin] = useState(false)
   const [chatOpen, setChatOpen] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
-  const [isPaused, setIsPaused] = useState(false)
 
   useEffect(() => {
     const tg = (window as any).Telegram?.WebApp
@@ -53,7 +51,6 @@ export default function App() {
       .then(() => Promise.all([getChatStatus(), getProfile().catch(() => null)]))
       .then(([status, profile]) => {
         if ((profile as any)?.user?.is_admin) setIsAdmin(true)
-        if ((profile as any)?.user?.is_paused) setIsPaused(true)
         if (status.has_session) {
           setIsReturning(true)
           setSessionComplete(status.profile_ready)
@@ -117,20 +114,6 @@ export default function App() {
     }
   }
 
-  const handleTogglePause = async () => {
-    try {
-      if (isPaused) {
-        await apiRequest('/api/profile/unpause', { method: 'POST' })
-        setIsPaused(false)
-      } else {
-        await apiRequest('/api/profile/pause', { method: 'POST' })
-        setIsPaused(true)
-      }
-    } catch {
-      // ignore
-    }
-  }
-
   // Compute which BottomNav tab is active based on current screen
   const activeTab: MainTab =
     screen === 'feed' ? 'feed' :
@@ -184,9 +167,6 @@ export default function App() {
             onGoToChat={openChat}
             onNavigateViews={() => setScreen('views')}
             onNavigateSaved={() => setScreen('saved')}
-            onOpenSettings={() => setSettingsOpen(true)}
-            isPaused={isPaused}
-            onTogglePause={handleTogglePause}
             isAdmin={isAdmin}
             onNavigateAdmin={() => setScreen('admin')}
             viewsBadge={badges.views}
@@ -225,15 +205,10 @@ export default function App() {
         activeTab={activeTab}
         onTabChange={handleTabChange}
         badges={{ matches: badges.matches + badges.chats, views: badges.views }}
-        isAdmin={isAdmin}
         hidden={bottomNavHidden}
-        onNavigateTo={(s) => setScreen(s as Screen)}
-        onOpenSettings={() => setSettingsOpen(true)}
-        isPaused={isPaused}
-        onTogglePause={handleTogglePause}
       />
 
-      {/* Settings sheet (accessible from BottomNav context menu) */}
+      {/* Settings sheet */}
       {settingsOpen && (
         <SettingsSheet onClose={() => setSettingsOpen(false)} />
       )}
